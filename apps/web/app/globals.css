@@ -1,0 +1,167 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * The whole visual language lives in these component classes: pages stay readable because
+ * repeated control styling is expressed once, and a11y defaults (focus ring, disabled state,
+ * touch target) are impossible to forget.
+ */
+
+@layer base {
+    :root {
+        color-scheme: light;
+    }
+
+    html,
+    body {
+        @apply h-full bg-canvas text-ink antialiased;
+    }
+
+    * {
+        @apply border-line;
+    }
+
+    /* A visible focus ring everywhere: keyboard users are not an afterthought. */
+    :focus-visible {
+        @apply outline-none ring-2 ring-brand-400 ring-offset-1 ring-offset-surface;
+    }
+
+    ::selection {
+        @apply bg-brand-100 text-ink;
+    }
+}
+
+@layer components {
+
+    /* ------------------------------------------------------------------ controls */
+    .btn {
+        @apply inline-flex h-9 select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 text-sm font-medium transition disabled:pointer-events-none disabled:opacity-50;
+    }
+
+    .btn-primary {
+        @apply btn bg-brand-600 text-white hover:bg-brand-700 active:bg-brand-800;
+    }
+
+    .btn-secondary {
+        @apply btn border border-line bg-surface text-ink-soft hover:bg-canvas active:bg-gray-100;
+    }
+
+    .btn-ghost {
+        @apply btn text-ink-muted hover:bg-gray-100 hover:text-ink;
+    }
+
+    .btn-danger {
+        @apply btn bg-danger text-white hover:bg-red-700;
+    }
+
+    .btn-sm {
+        @apply h-7 px-2 text-xs;
+    }
+
+    .btn-icon {
+        @apply h-9 w-9 px-0;
+    }
+
+    .field {
+        @apply w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-faint focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100 disabled:bg-canvas disabled:text-ink-faint;
+    }
+
+    .label {
+        @apply mb-1 block text-xs font-semibold uppercase tracking-wide text-ink-muted;
+    }
+
+    .checkbox {
+        @apply h-4 w-4 rounded border-line text-brand-600 focus:ring-brand-400;
+    }
+
+    /* -------------------------------------------------------------------- layout */
+    .card {
+        @apply rounded-xl border border-line bg-surface shadow-card;
+    }
+
+    .panel {
+        @apply card p-4;
+    }
+
+    .divider {
+        @apply border-t border-line;
+    }
+
+    .nav-item {
+        @apply flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm text-ink-soft transition hover:bg-gray-100;
+    }
+
+    .nav-item-active {
+        @apply bg-brand-50 font-medium text-brand-700 hover:bg-brand-50;
+    }
+
+    /* ---------------------------------------------------------------------- bits */
+    .chip {
+        @apply inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 text-xs font-medium text-ink-soft;
+    }
+
+    .kbd {
+        @apply rounded border border-line bg-canvas px-1.5 py-0.5 font-sans text-[11px] text-ink-muted;
+    }
+
+    .skeleton {
+        @apply animate-pulse rounded-lg bg-gray-200/70;
+    }
+
+    .link {
+        @apply text-brand-600 hover:text-brand-700 hover:underline;
+    }
+
+    .status-dot {
+        @apply inline-block h-2 w-2 shrink-0 rounded-full;
+    }
+
+    /* Task cards on the board: draggable surface with a hover affordance. */
+    .board-card {
+        @apply card cursor-pointer p-3 transition hover:border-brand-200 hover:shadow-pop;
+    }
+
+    .board-card-ghost {
+        @apply card border-brand-300 bg-brand-50 p-3 opacity-60;
+    }
+
+    .column-drop {
+        @apply rounded-xl border-2 border-dashed border-brand-300 bg-brand-50/60;
+    }
+}
+
+@layer utilities {
+    .scroll-x {
+        @apply overflow-x-auto pb-2;
+    }
+
+    .no-scrollbar::-webkit-scrollbar {
+        display: none;
+    }
+
+    .no-scrollbar {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+    }
+
+    .text-balance {
+        text-wrap: balance;
+    }
+}
+
+@keyframes drawer-in {
+    from {
+        transform: translateX(24px);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+.animate-drawer {
+    animation: drawer-in 160ms ease-out;
+}

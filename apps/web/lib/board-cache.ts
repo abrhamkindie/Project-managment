@@ -1,0 +1,79 @@
+import type { BoardDto, TaskCardDto } from './types';
+
+/**
+ * Board cache surgery, shared by the realtime provider and by task mutations.
+ *
+ * Both paths receive an authoritative card and must decide which column it now belongs to.
+ * Doing it in one place is what keeps a locally moved card and a remotely moved card
+ * indistinguishable in the UI.
+ */
+
+/** Merge a card into the board: updates in place, moves between columns, or inserts. */
+export function mergeTaskIntoBoard(board: BoardDto, task: TaskCardDto): BoardDto {
+    return {
+        ...board,
+        sections: board.sections.map((section) => {
+            const belongs = task.sectionId === section.id;
+            const present = section.tasks.some((candidate) => candidate.id === task.id);
+            // A card lives in exactly one column, so a move removes it from the old one first.
+            const tasks = belongs
+                ? (present
+                    ? section.tasks.map((candidate) => (candidate.id === task.id ? { ...candidate, ...task } : candidate))
+                    : [...section.tasks, task].sort((a, b) => a.position - b.position))
+                : section.tasks.filter((candidate) => candidate.id !== task.id);
+            return { ...section, tasks };
+        }),
+        unassigned: task.sectionId
+            ? board.unassigned.filter((candidate) => candidate.id !== task.id)
+            : upsert(board.unassigned, task),
+    };
+}
+
+export function removeTaskFromBoard(board: BoardDto, taskId: string): BoardDto {
+    return {
+        ...board,
+        sections: board.sections.map((section) => ({ ...section, tasks: section.tasks.filter((task) => task.id !== taskId) })),
+        unassigned: board.unassigned.filter((task) => task.id !== taskId),
+    };
+}
+
+function upsert(list: TaskCardDto[], task: TaskCardDto): TaskCardDto[] {
+    const present = list.some((candidate) => candidate.id === task.id);
+    if (!present) return [...list, task].sort((a, b) => a.position - b.position);
+    return list.map((candidate) => (candidate.id === task.id ? { ...candidate, ...task } : candidate));
+}
+
+/** Neighbours around a drop position, which is all the API needs to rank a card. */
+export function neighbours(tasks: TaskCardDto[], beforeId: string | null): { afterTaskId?: string; beforeTaskId?: string } {
+    const index = beforeId ? tasks.findIndex((task) => task.id === beforeId) : tasks.length;
+    if (index < 0) return {};
+    return {
+        ...(index > 0 ? { afterTaskId: tasks[index - 1]?.id } : {}),
+        ...(index < tasks.length ? { beforeTaskId: tasks[index]?.id } : {}),
+    };
+}
+
+/**
+ * Mirror a drag in the cache before the server answers, so the card stays where it was dropped
+ * instead of snapping back for the round trip.
+ *
+ * Status is deliberately not guessed here: a done column may re-open or complete the card, and
+ * only the API knows which. The authoritative merge fixes that a moment later.
+ */
+export function moveTaskLocally(board: BoardDto, taskId: string, sectionId: string, beforeId: string | null): BoardDto {
+    const card = [...board.sections.flatMap((section) => section.tasks), ...board.unassigned].find((task) => task.id === taskId);
+    if (!card) return board;
+    const moved: TaskCardDto = { ...card, sectionId };
+
+    return {
+        ...board,
+        sections: board.sections.map((section) => {
+            const rest = section.tasks.filter((task) => task.id !== taskId);
+            if (section.id !== sectionId) return { ...section, tasks: rest };
+            const found = beforeId ? rest.findIndex((task) => task.id === beforeId) : rest.length;
+            const at = found < 0 ? rest.length : found;
+            return { ...section, tasks: [...rest.slice(0, at), moved, ...rest.slice(at)] };
+        }),
+        unassigned: board.unassigned.filter((task) => task.id !== taskId),
+    };
+}

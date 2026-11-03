@@ -1,0 +1,33 @@
+# dependencies
+node_modules/
+.pnp
+.npnpmrc
+
+# builds
+dist/
+.next/
+out/
+build/
+*.tsbuildinfo
+
+# environment & secrets
+.env
+.env.*
+!.env.example
+
+# databases
+apps/api/prisma/dev.db
+apps/api/prisma/*.db
+apps/api/prisma/*.db-journal
+apps/api/prisma/schema.generated.prisma
+
+# uploads (local storage driver)
+uploads/
+
+# logs & caches
+logs/
+*.log
+.cache/
+coverage/
+.DS_Store
+server.pid

@@ -1,0 +1,371 @@
+// Atlas data model.
+//
+// Portability rule: this schema is authored once and used for BOTH SQLite (local
+// development / tests) and PostgreSQL (production). To stay portable we deliberately
+// avoid provider-specific features:
+//   - no `@db.*` native type attributes
+//   - no Prisma `enum` (unsupported on SQLite) -> string columns validated by Zod in
+//     `src/domain/enums.ts`, which is the single source of truth for allowed values
+//   - no `mode: 'insensitive'` filters (unsupported on SQLite)
+//
+// `npm run db:sqlite` / `npm run db:postgres` only rewrite the datasource `provider`
+// line below and regenerate the client.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ----------------------------------------------------------------------------- users
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  avatarUrl    String?
+  timezone     String    @default("UTC")
+  // JSON string: { emailOnAssign, emailOnComment, emailDigest }
+  prefs        String    @default("{}")
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  memberships      OrganizationMember[]
+  ownedOrganizations Organization[]   @relation("OrganizationOwner")
+  teamMemberships  TeamMember[]
+  projectMembers   ProjectMember[]
+  assignedTasks    TaskAssignee[]
+  createdTasks     Task[]             @relation("TaskCreator")
+  comments         Comment[]
+  attachments      Attachment[]
+  activities       Activity[]
+  notifications    Notification[]
+  refreshTokens    RefreshToken[]
+  sentInvitations  Invitation[]
+  editedTasks      Task[]             @relation("TaskEditor")
+
+  @@index([email])
+}
+
+model RefreshToken {
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String    @unique
+  userAgent  String?
+  ip         String?
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// --------------------------------------------------------------- organizations
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  ownerId   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner     User                 @relation("OrganizationOwner", fields: [ownerId], references: [id])
+  members   OrganizationMember[]
+  teams     Team[]
+  projects  Project[]
+  labels    Label[]
+  invitations Invitation[]
+  activities Activity[]
+
+  @@index([slug])
+}
+
+/// role: admin | manager | member  (see src/domain/enums.ts)
+model OrganizationMember {
+  id        String   @id @default(cuid())
+  orgId     String
+  userId    String
+  role      String   @default("member")
+  createdAt DateTime @default(now())
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, userId])
+  @@index([userId])
+}
+
+model Invitation {
+  id          String    @id @default(cuid())
+  orgId       String
+  email       String
+  role        String    @default("member")
+  tokenHash   String    @unique
+  invitedById String
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  invitedBy User         @relation(fields: [invitedById], references: [id], onDelete: Cascade)
+
+  @@index([orgId, email])
+}
+
+model Team {
+  id        String   @id @default(cuid())
+  orgId     String
+  name      String
+  slug      String
+  createdAt DateTime @default(now())
+
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  members TeamMember[]
+  projects Project[]
+
+  @@unique([orgId, slug])
+}
+
+model TeamMember {
+  id      String  @id @default(cuid())
+  teamId  String
+  userId  String
+  createdAt DateTime @default(now())
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+}
+
+// --------------------------------------------------------------------- projects
+
+/// visibility: organization (everyone in the org) | private (project members only)
+/// status: active | archived
+model Project {
+  id          String    @id @default(cuid())
+  orgId       String
+  teamId      String?
+  name        String
+  description String?
+  color       String    @default("#6366f1")
+  visibility  String    @default("organization")
+  status      String    @default("active")
+  startDate   DateTime?
+  dueDate     DateTime?
+  createdById String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  org       Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  team      Team?         @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  members   ProjectMember[]
+  sections  Section[]
+  tasks     Task[]
+  labels    Label[]
+
+  @@index([orgId])
+  @@index([orgId, status])
+}
+
+/// role: lead | member
+model ProjectMember {
+  id        String   @id @default(cuid())
+  projectId String
+  userId    String
+  role      String   @default("member")
+  createdAt DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@index([userId])
+}
+
+/// A Kanban column / list section. `position` is a fractional rank.
+model Section {
+  id        String   @id @default(cuid())
+  projectId String
+  name      String
+  position  Float    @default(1000)
+  isDone    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks   Task[]
+
+  @@index([projectId])
+}
+
+/// Org-wide labels (Asana "tags"); projects may also scope a label.
+model Label {
+  id        String   @id @default(cuid())
+  orgId     String
+  projectId String?
+  name      String
+  color     String   @default("#0f766e")
+
+  org   Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project Project?    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks TaskLabel[]
+
+  @@unique([orgId, name])
+}
+
+model TaskLabel {
+  id     String @id @default(cuid())
+  taskId String
+  labelId String
+
+  task  Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  label Label @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, labelId])
+}
+
+// ------------------------------------------------------------------------ tasks
+
+/// status: todo | in_progress | in_review | done | canceled
+/// priority: none | low | medium | high | urgent
+model Task {
+  id           String    @id @default(cuid())
+  projectId    String
+  sectionId    String?
+  parentTaskId String?
+  title        String
+  description  String?
+  status       String    @default("todo")
+  priority     String    @default("none")
+  dueDate      DateTime?
+  startDate    DateTime?
+  estimateMins Int?
+  isMilestone  Boolean   @default(false)
+  position     Float     @default(1000)
+  createdById  String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  /// denormalised for fast analytics; kept in sync by the task service
+  completedAt  DateTime?
+  deletedAt    DateTime?
+
+  project      Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  section      Section?     @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  parent       Task?        @relation("TaskSubtasks", fields: [parentTaskId], references: [id], onDelete: Cascade)
+  children     Task[]       @relation("TaskSubtasks")
+  createdBy    User         @relation("TaskCreator", fields: [createdById], references: [id])
+  lastEditedBy User?        @relation("TaskEditor", fields: [lastEditedById], references: [id])
+  lastEditedById String?
+  assignees    TaskAssignee[]
+  comments     Comment[]
+  attachments  Attachment[]
+  labels       TaskLabel[]
+  activities   Activity[]
+
+  @@index([projectId, status])
+  @@index([projectId, sectionId])
+  @@index([dueDate])
+  @@index([parentTaskId])
+  @@index([completedAt])
+}
+
+model TaskAssignee {
+  id        String   @id @default(cuid())
+  taskId    String
+  userId    String
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId])
+  @@index([userId])
+}
+
+model Comment {
+  id        String    @id @default(cuid())
+  taskId    String
+  authorId  String
+  body      String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+}
+
+model Attachment {
+  id         String   @id @default(cuid())
+  taskId     String
+  uploaderId String
+  filename   String
+  mimeType   String
+  size       Int
+  storageKey String
+  createdAt  DateTime @default(now())
+
+  task     Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  uploader User @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+}
+
+// ---------------------------------------------------------------- activity feed
+
+/// Every task/project mutation is recorded here (append-only audit + analytics
+/// source). `meta` is a JSON string.
+/// type examples: task.created, task.updated, task.assigned, task.unassigned,
+/// task.status_changed, task.completed, comment.added, project.created,
+/// member.added, attachment.added
+model Activity {
+  id        String   @id @default(cuid())
+  orgId     String
+  projectId String?
+  taskId    String?
+  actorId   String
+  type      String
+  meta      String   @default("{}")
+  createdAt DateTime @default(now())
+
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  task  Task?        @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  actor User         @relation(fields: [actorId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, createdAt])
+  @@index([projectId, createdAt])
+  @@index([taskId])
+  @@index([actorId, createdAt])
+}
+
+/// type: task.assigned | task.due | task.status_changed | comment.added |
+/// member.invited | project.member_added
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  orgId     String
+  type      String
+  title     String
+  body      String
+  link      String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+}
