@@ -2,6 +2,7 @@ import type { Viewport } from 'next';
 import type { ReactNode } from 'react';
 import { ToastProvider } from '~/components/toast';
 import { QueryProvider } from './providers';
+import { ThemeProvider } from '~/lib/theme';
 import './globals.css';
 
 /**
@@ -24,13 +25,21 @@ export const metadata = {
     robots: { index: false, follow: false },
 };
 
+/** Runs before paint so the stored/system theme is on `<html>` from the very first frame. */
+const THEME_SCRIPT = `(function(){try{var k='atlas-theme';var t=localStorage.getItem(k)||'system';var d=t==='dark'||(t==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches);var c=document.documentElement.classList;if(d)c.add('dark');else c.remove('dark');document.documentElement.style.colorScheme=d?'dark':'light';}catch(e){}})();`;
+
 export default function RootLayout({ children }: { children: ReactNode }) {
     return (
         <html lang="en" suppressHydrationWarning>
-            <body className="min-h-full font-sans text-ink">
-                <QueryProvider>
-                    <ToastProvider>{children}</ToastProvider>
-                </QueryProvider>
+            <head>
+                <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+            </head>
+            <body className="min-h-full font-sans text-ink antialiased">
+                <ThemeProvider>
+                    <QueryProvider>
+                        <ToastProvider>{children}</ToastProvider>
+                    </QueryProvider>
+                </ThemeProvider>
             </body>
         </html>
     );

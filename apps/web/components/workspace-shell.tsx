@@ -25,6 +25,7 @@ import { useRealtime } from '~/lib/realtime';
 import type { OrganizationSummary, Session } from '~/lib/types';
 import { CreateWorkspaceForm } from './create-workspace';
 import { NotificationBell } from './notification-bell';
+import { ThemeToggle } from './theme-toggle';
 import { Avatar, Menu, MenuItem, Modal } from './ui';
 
 /**
@@ -84,14 +85,19 @@ export function WorkspaceShell({ session, org, children }: { session: Session; o
             </aside>
 
             <div className="flex min-w-0 flex-1 flex-col">
-                <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-2 border-b border-line bg-surface/95 px-3 backdrop-blur">
+                <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-2 border-b border-line bg-surface/80 px-3 backdrop-blur-md">
                     <div className="flex min-w-0 items-center gap-2">
                         <button type="button" className="btn btn-ghost btn-icon lg:hidden" aria-label="Open navigation" onClick={() => setMobileNav((value) => !value)}>
                             <MenuIcon className="h-5 w-5" />
                         </button>
                         <span className="truncate text-sm font-medium lg:hidden">{org.name}</span>
                     </div>
-                    <Header session={session} slug={org.slug} />
+                    <div className="flex items-center gap-2">
+                        <div className="hidden sm:block">
+                            <ThemeToggle />
+                        </div>
+                        <Header session={session} slug={org.slug} />
+                    </div>
                 </header>
 
                 {/* `min-h-0` lets a board fill exactly the remaining height and scroll its own columns. */}
@@ -99,8 +105,8 @@ export function WorkspaceShell({ session, org, children }: { session: Session; o
             </div>
 
             {mobileNav ? (
-                <div className="fixed inset-0 z-40 bg-ink/40 lg:hidden" onClick={() => setMobileNav(false)}>
-                    <nav className="h-full w-64 space-y-1 bg-surface p-3" onClick={(event) => event.stopPropagation()}>
+                <div className="fixed inset-0 z-40 bg-backdrop/50 backdrop-blur-sm lg:hidden" onClick={() => setMobileNav(false)}>
+                    <nav className="h-full w-64 space-y-1 border-r border-line bg-surface p-3" onClick={(event) => event.stopPropagation()}>
                         <p className="px-2 pb-2 text-xs font-semibold uppercase tracking-wide text-ink-muted">{org.name}</p>
                         {links.map((link) => (
                             <Link

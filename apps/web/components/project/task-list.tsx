@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import clsx from 'clsx';
 import { CalendarDays, CheckCircle2, Flag, ListTree, MessageSquare, Paperclip } from 'lucide-react';
 import { DUE_CLASS, PRIORITY_CLASS, PRIORITY_LABEL, STATUS_LABEL, STATUS_TOKEN, dueLabel, dueTone } from '~/lib/format';
@@ -20,12 +21,15 @@ export function TaskList({
     board,
     canEdit,
     onOpen,
+    selectedTaskId = null,
 }: {
     orgId: string;
     projectId: string;
     board: BoardDto;
     canEdit: boolean;
     onOpen: (taskId: string) => void;
+    /** The task whose drawer is open, so its row can be highlighted and scrolled into view. */
+    selectedTaskId?: string | null;
 }) {
     const groups = board.sections.map((section) => ({ key: section.id, name: section.name, tasks: section.tasks, isDone: section.isDone }));
     if (board.unassigned.length > 0) groups.push({ key: 'unassigned', name: 'No column', tasks: board.unassigned, isDone: false });
@@ -44,7 +48,7 @@ export function TaskList({
                         {group.tasks.length === 0 ? <li className="px-3 py-3 text-sm text-ink-faint">No tasks in this column.</li> : null}
                         {group.tasks.map((task) => (
                             <li key={task.id}>
-                                <TaskRow task={task} canEdit={canEdit} onOpen={onOpen} />
+                                <TaskRow task={task} canEdit={canEdit} onOpen={onOpen} selected={task.id === selectedTaskId} />
                             </li>
                         ))}
                     </ul>
@@ -61,13 +65,22 @@ export function TaskList({
 }
 
 /** One row: complete it, open it, see who owns it. Reused by My Tasks. */
-export function TaskRow({ task, canEdit, onOpen }: { task: TaskCardDto; canEdit: boolean; onOpen: (taskId: string) => void }) {
+export function TaskRow({ task, canEdit, onOpen, selected = false }: { task: TaskCardDto; canEdit: boolean; onOpen: (taskId: string) => void; selected?: boolean }) {
     const update = useUpdateTask();
     const tone = dueTone(task.dueDate, task.status, task.isOverdue);
     const done = task.status === 'done' || task.status === 'canceled';
 
+    const rowRef = useRef<HTMLDivElement | null>(null);
+    useEffect(() => {
+        if (selected) rowRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }, [selected]);
+
     return (
-        <div className="flex items-center gap-3 px-3 py-2.5 transition hover:bg-canvas">
+        <div
+            ref={rowRef}
+            aria-current={selected ? 'true' : undefined}
+            className={clsx('flex items-center gap-3 border-l-2 px-3 py-2.5 transition', selected ? 'border-l-brand-500 bg-brand-50' : 'border-l-transparent hover:bg-canvas')}
+        >
             <button
                 type="button"
                 disabled={!canEdit}

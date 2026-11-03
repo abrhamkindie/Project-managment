@@ -44,6 +44,7 @@ export function BoardColumn({
     canAdd,
     canDelete,
     onOpen,
+    selectedTaskId = null,
 }: {
     orgId: string;
     projectId: string;
@@ -58,6 +59,8 @@ export function BoardColumn({
     /** The API refuses to delete a project's last column, so the menu must too. */
     canDelete: boolean;
     onOpen: (taskId: string) => void;
+    /** The task whose drawer is open, so its card can be highlighted and scrolled into view. */
+    selectedTaskId?: string | null;
 }) {
     const sections = useSections(projectId);
     const [draft, setDraft] = useState<string | null>(null);
@@ -142,7 +145,7 @@ export function BoardColumn({
             <SortableContext items={tasks.map((task) => task.id)} strategy={verticalListSortingStrategy}>
                 <div className="flex-1 space-y-2 overflow-y-auto px-3 py-2">
                     {tasks.map((task) => (
-                        <TaskCard key={task.id} task={task} onOpen={onOpen} draggable={draggable} />
+                        <TaskCard key={task.id} task={task} onOpen={onOpen} draggable={draggable} selected={task.id === selectedTaskId} />
                     ))}
                     {tasks.length === 0 ? (
                         <p className="rounded-lg border border-dashed border-line px-3 py-6 text-center text-xs text-ink-faint">

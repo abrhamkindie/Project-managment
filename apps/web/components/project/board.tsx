@@ -75,12 +75,15 @@ export function Board({
     board,
     canEdit,
     onOpen,
+    selectedTaskId = null,
 }: {
     orgId: string;
     projectId: string;
     board: BoardDto;
     canEdit: boolean;
     onOpen: (taskId: string) => void;
+    /** The task whose drawer is open, so its card can be highlighted and scrolled into view. */
+    selectedTaskId?: string | null;
 }) {
     const client = useQueryClient();
     const move = useMoveTask();
@@ -144,6 +147,7 @@ export function Board({
                         canAdd={false}
                         canDelete={board.sections.length > 1}
                         onOpen={onOpen}
+                        selectedTaskId={selectedTaskId}
                     />
                 ))}
 
@@ -159,6 +163,7 @@ export function Board({
                         canAdd={board.sections.length === 0}
                         canDelete={false}
                         onOpen={onOpen}
+                        selectedTaskId={selectedTaskId}
                     />
                 ) : null}
 

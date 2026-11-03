@@ -1,6 +1,7 @@
 'use client';
 
 import { CalendarDays, CheckCircle2, Flag, ListTree, MessageSquare, Paperclip } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import clsx from 'clsx';
@@ -19,14 +20,31 @@ export function TaskCard({
     onOpen,
     draggable = false,
     overlay = false,
+    selected = false,
 }: {
     task: TaskCardDto;
     onOpen: (taskId: string) => void;
     draggable?: boolean;
     overlay?: boolean;
+    /** The drawer is open on this card — ring it and make sure it is on screen. */
+    selected?: boolean;
 }) {
     const sortable = useSortable({ id: task.id, disabled: !draggable });
     const tone = dueTone(task.dueDate, task.status, task.isOverdue);
+
+    // Keep our own handle to the node so we can scroll it into view; when draggable, dnd-kit also
+    // needs the same element, so the two refs are composed here rather than fighting over it.
+    const nodeRef = useRef<HTMLDivElement | null>(null);
+    const setRefs = (el: HTMLDivElement | null) => {
+        nodeRef.current = el;
+        if (draggable) sortable.setNodeRef(el);
+    };
+
+    // When this card becomes the open one, bring it into view (nearest, so a card already on screen
+    // does not jump) — the drawer covers the right edge, so scroll horizontally too.
+    useEffect(() => {
+        if (selected) nodeRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+    }, [selected]);
 
     const style = draggable
         ? { transform: CSS.Transform.toString(sortable.transform), transition: sortable.transition }
@@ -34,7 +52,7 @@ export function TaskCard({
 
     return (
         <div
-            ref={draggable ? sortable.setNodeRef : undefined}
+            ref={draggable ? setRefs : nodeRef}
             style={style}
             {...(draggable ? sortable.attributes : {})}
             {...(draggable ? sortable.listeners : {})}
@@ -44,8 +62,12 @@ export function TaskCard({
             }}
             role="button"
             tabIndex={0}
+            aria-current={selected ? 'true' : undefined}
             aria-label={`Open task ${task.title}`}
-            className={clsx(overlay ? 'board-card-ghost' : 'board-card', draggable && sortable.isDragging && 'opacity-40')}
+            className={clsx(
+                overlay ? 'board-card-ghost' : selected ? 'board-card-selected' : 'board-card',
+                draggable && sortable.isDragging && 'opacity-40',
+            )}
         >
             <p className="flex items-start gap-1.5 text-sm font-medium text-ink">
                 {task.status === 'done' ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-state-done" /> : null}

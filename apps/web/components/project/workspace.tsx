@@ -225,10 +225,10 @@ export function ProjectWorkspace({
 
             <main className="min-h-0 flex-1 bg-canvas">
                 {view === 'board' ? (
-                    <Board orgId={orgId} projectId={projectId} board={filtered} canEdit={canEdit} onOpen={open} />
+                    <Board orgId={orgId} projectId={projectId} board={filtered} canEdit={canEdit} onOpen={open} selectedTaskId={taskId} />
                 ) : (
                     <div className="mx-auto max-w-5xl px-4 py-5">
-                        <TaskList orgId={orgId} projectId={projectId} board={filtered} canEdit={canEdit} onOpen={open} />
+                        <TaskList orgId={orgId} projectId={projectId} board={filtered} canEdit={canEdit} onOpen={open} selectedTaskId={taskId} />
                     </div>
                 )}
             </main>

@@ -152,10 +152,11 @@ export function fullName(user?: { firstName: string; lastName: string } | null):
 
 /** Deterministic avatar tint from the id, so a person keeps their colour across screens. */
 export function avatarTint(seed: string): string {
-    const palette = ['bg-brand-100 text-brand-700', 'bg-sky-100 text-sky-700', 'bg-emerald-100 text-emerald-700', 'bg-amber-100 text-amber-700', 'bg-rose-100 text-rose-700', 'bg-violet-100 text-violet-700'];
+    // Solid hues with white glyphs: high contrast and identical in light and dark.
+    const palette = ['bg-brand-500', 'bg-sky-500', 'bg-emerald-500', 'bg-amber-500', 'bg-rose-500', 'bg-violet-500', 'bg-teal-500', 'bg-fuchsia-500'];
     let hash = 0;
     for (const character of seed) hash = (hash * 31 + character.charCodeAt(0)) % 1_000_003;
-    return palette[hash % palette.length] ?? 'bg-gray-100 text-gray-700';
+    return `${palette[hash % palette.length] ?? 'bg-gray-500'} text-white`;
 }
 
 export function formatSize(bytes: number): string {

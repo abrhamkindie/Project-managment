@@ -3,19 +3,174 @@
 @tailwind utilities;
 
 /*
- * The whole visual language lives in these component classes: pages stay readable because
- * repeated control styling is expressed once, and a11y defaults (focus ring, disabled state,
- * touch target) are impossible to forget.
+ * Two layers live here:
+ *   1. Tokens — semantic CSS variables (RGB channels so `/opacity` works) with a light `:root`
+ *      and a `.dark` override. Swapping the theme is one class on <html>; nothing else changes.
+ *   2. Component classes — the repeated control styling expressed once, so pages stay readable
+ *      and a11y defaults (focus ring, disabled state, touch target) are impossible to forget.
  */
 
 @layer base {
     :root {
         color-scheme: light;
+
+        /* brand: tintable ramp (chips, links, active nav) */
+        --brand-50: 238 242 255;
+        --brand-100: 224 231 255;
+        --brand-200: 199 210 254;
+        --brand-300: 165 180 252;
+        --brand-400: 129 140 248;
+        --brand-500: 99 102 241;
+        --brand-600: 79 70 229;
+        --brand-700: 67 56 202;
+        --brand-800: 55 48 163;
+        --brand-900: 49 46 129;
+
+        /* accent: solid control color (does not invert to a light value) */
+        --accent: 79 70 229;
+        --accent-hover: 67 56 202;
+
+        /* surfaces */
+        --canvas: 248 250 252;
+        --surface: 255 255 255;
+        --elevated: 255 255 255;
+        --subtle: 241 245 249;
+        --hover: 241 245 249;
+        --active: 238 242 255;
+        --backdrop: 15 23 42;
+
+        /* lines + text */
+        --line: 226 232 240;
+        --line-strong: 203 213 225;
+        --ink: 15 23 42;
+        --ink-soft: 51 65 85;
+        --ink-muted: 100 116 139;
+        --ink-faint: 148 163 184;
+        --danger: 220 38 38;
+
+        /* neutral + tone ramps (repointed Tailwind defaults) */
+        --gray-50: 248 250 252;
+        --gray-100: 241 245 249;
+        --gray-200: 226 232 240;
+        --gray-300: 203 213 225;
+        --gray-400: 148 163 184;
+        --gray-500: 100 116 139;
+        --gray-600: 71 85 105;
+        --gray-700: 51 65 85;
+        --gray-800: 30 41 59;
+        --gray-900: 15 23 42;
+
+        --green-50: 240 253 244;
+        --green-100: 220 252 231;
+        --green-200: 187 247 208;
+        --green-500: 34 197 94;
+        --green-600: 22 163 74;
+        --green-700: 21 128 61;
+
+        --red-50: 254 242 242;
+        --red-100: 254 226 226;
+        --red-200: 254 202 202;
+        --red-500: 239 68 68;
+        --red-600: 220 38 38;
+        --red-700: 185 28 28;
+
+        --amber-50: 255 251 235;
+        --amber-100: 254 243 199;
+        --amber-200: 253 230 138;
+        --amber-500: 245 158 11;
+        --amber-600: 217 119 6;
+        --amber-700: 180 83 9;
+        --amber-800: 146 64 14;
+
+        --sky-100: 224 242 254;
+        --sky-500: 14 165 233;
+        --sky-600: 2 132 199;
+        --sky-700: 3 105 161;
+    }
+
+    .dark {
+        color-scheme: dark;
+
+        --brand-50: 38 35 84;
+        --brand-100: 49 46 129;
+        --brand-200: 67 56 202;
+        --brand-300: 129 140 248;
+        --brand-400: 129 140 248;
+        --brand-500: 129 140 248;
+        --brand-600: 99 102 241;
+        --brand-700: 165 180 252;
+        --brand-800: 199 210 254;
+        --brand-900: 224 231 255;
+
+        --accent: 79 70 229;
+        --accent-hover: 99 102 241;
+
+        --canvas: 10 12 17;
+        --surface: 18 21 28;
+        --elevated: 24 28 37;
+        --subtle: 28 32 42;
+        --hover: 32 38 50;
+        --active: 38 35 84;
+        --backdrop: 0 0 0;
+
+        --line: 39 44 55;
+        --line-strong: 56 64 79;
+        --ink: 233 237 243;
+        --ink-soft: 203 210 222;
+        --ink-muted: 150 160 178;
+        --ink-faint: 108 119 138;
+        --danger: 248 113 113;
+
+        --gray-50: 24 28 37;
+        --gray-100: 32 38 50;
+        --gray-200: 39 44 55;
+        --gray-300: 56 64 79;
+        --gray-400: 108 119 138;
+        --gray-500: 150 160 178;
+        --gray-600: 150 160 178;
+        --gray-700: 203 210 222;
+        --gray-800: 224 229 236;
+        --gray-900: 240 243 248;
+
+        --green-50: 20 40 30;
+        --green-100: 24 52 38;
+        --green-200: 34 72 52;
+        --green-500: 74 222 128;
+        --green-600: 74 222 128;
+        --green-700: 134 239 172;
+
+        --red-50: 45 21 24;
+        --red-100: 58 26 30;
+        --red-200: 78 34 40;
+        --red-500: 248 113 113;
+        --red-600: 248 113 113;
+        --red-700: 252 165 165;
+
+        --amber-50: 43 33 10;
+        --amber-100: 54 42 14;
+        --amber-200: 72 56 18;
+        --amber-500: 251 191 36;
+        --amber-600: 251 191 36;
+        --amber-700: 252 211 77;
+        --amber-800: 253 224 71;
+
+        --sky-100: 22 48 66;
+        --sky-500: 56 189 248;
+        --sky-600: 56 189 248;
+        --sky-700: 125 211 252;
+
+        /* Shadows read as glow against a dark background. */
+        --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3), 0 1px 3px rgb(0 0 0 / 0.4);
     }
 
     html,
     body {
         @apply h-full bg-canvas text-ink antialiased;
+    }
+
+    body {
+        font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'ss01';
+        text-rendering: optimizeLegibility;
     }
 
     * {
@@ -24,11 +179,32 @@
 
     /* A visible focus ring everywhere: keyboard users are not an afterthought. */
     :focus-visible {
-        @apply outline-none ring-2 ring-brand-400 ring-offset-1 ring-offset-surface;
+        @apply outline-none ring-2 ring-accent/50 ring-offset-2 ring-offset-surface;
     }
 
     ::selection {
-        @apply bg-brand-100 text-ink;
+        @apply bg-brand-500/30 text-ink;
+    }
+
+    /* Refined scrollbars that respect the theme. */
+    * {
+        scrollbar-color: rgb(var(--line-strong)) transparent;
+        scrollbar-width: thin;
+    }
+    ::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+    }
+    ::-webkit-scrollbar-thumb {
+        @apply rounded-full bg-line-strong;
+        background-clip: padding-box;
+        border: 3px solid transparent;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+        @apply bg-gray-400;
+    }
+    ::-webkit-scrollbar-track {
+        background: transparent;
     }
 }
 
@@ -36,23 +212,23 @@
 
     /* ------------------------------------------------------------------ controls */
     .btn {
-        @apply inline-flex h-9 select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 text-sm font-medium transition disabled:pointer-events-none disabled:opacity-50;
+        @apply inline-flex h-9 select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 text-[13px] font-medium tracking-tight transition-[background,color,box-shadow,transform] duration-150 disabled:pointer-events-none disabled:opacity-50 active:scale-[0.98];
     }
 
     .btn-primary {
-        @apply btn bg-brand-600 text-white hover:bg-brand-700 active:bg-brand-800;
+        @apply btn bg-accent text-white shadow-sm hover:bg-accent-hover focus-visible:ring-accent/50;
     }
 
     .btn-secondary {
-        @apply btn border border-line bg-surface text-ink-soft hover:bg-canvas active:bg-gray-100;
+        @apply btn border border-line bg-surface text-ink-soft shadow-sm hover:bg-hover hover:text-ink active:bg-gray-100;
     }
 
     .btn-ghost {
-        @apply btn text-ink-muted hover:bg-gray-100 hover:text-ink;
+        @apply btn text-ink-muted hover:bg-hover hover:text-ink;
     }
 
     .btn-danger {
-        @apply btn bg-danger text-white hover:bg-red-700;
+        @apply btn bg-danger text-white shadow-sm hover:brightness-110;
     }
 
     .btn-sm {
@@ -64,7 +240,7 @@
     }
 
     .field {
-        @apply w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-faint focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100 disabled:bg-canvas disabled:text-ink-faint;
+        @apply w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink shadow-sm transition placeholder:text-ink-faint focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/40 disabled:bg-canvas disabled:text-ink-faint;
     }
 
     .label {
@@ -72,7 +248,7 @@
     }
 
     .checkbox {
-        @apply h-4 w-4 rounded border-line text-brand-600 focus:ring-brand-400;
+        @apply h-4 w-4 rounded border-line-strong text-brand-600 focus:ring-brand-400;
     }
 
     /* -------------------------------------------------------------------- layout */
@@ -89,11 +265,16 @@
     }
 
     .nav-item {
-        @apply flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm text-ink-soft transition hover:bg-gray-100;
+        @apply relative flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium text-ink-soft transition hover:bg-hover hover:text-ink;
     }
 
     .nav-item-active {
-        @apply bg-brand-50 font-medium text-brand-700 hover:bg-brand-50;
+        @apply bg-active text-brand-700 hover:bg-active;
+    }
+
+    /* The accent rail that marks the active section, Linear-style. */
+    .nav-item-active::before {
+        @apply absolute -left-3 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-brand-500 content-[''];
     }
 
     /* ---------------------------------------------------------------------- bits */
@@ -110,7 +291,7 @@
     }
 
     .link {
-        @apply text-brand-600 hover:text-brand-700 hover:underline;
+        @apply font-medium text-brand-600 transition hover:text-brand-700 hover:underline;
     }
 
     .status-dot {
@@ -119,15 +300,20 @@
 
     /* Task cards on the board: draggable surface with a hover affordance. */
     .board-card {
-        @apply card cursor-pointer p-3 transition hover:border-brand-200 hover:shadow-pop;
+        @apply card cursor-pointer p-3 transition duration-150 hover:-translate-y-px hover:border-brand-300 hover:shadow-pop;
     }
 
     .board-card-ghost {
         @apply card border-brand-300 bg-brand-50 p-3 opacity-60;
     }
 
+/* The card whose drawer is open — a hairline accent ring + tint, so the board shows which one it is. */
+.board-card-selected {
+        @apply card cursor-pointer border-brand-400 bg-brand-50 p-3 ring-2 ring-brand-400;
+    }
+
     .column-drop {
-        @apply rounded-xl border-2 border-dashed border-brand-300 bg-brand-50/60;
+        @apply rounded-xl border-2 border-dashed border-brand-400 bg-brand-50/60;
     }
 }
 
@@ -164,4 +350,20 @@
 
 .animate-drawer {
     animation: drawer-in 160ms ease-out;
+}
+
+@keyframes fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.animate-fade-in {
+    animation: fade-in 180ms ease-out;
 }

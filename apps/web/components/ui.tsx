@@ -115,11 +115,11 @@ export function Badge({
     children: ReactNode;
 }) {
     const tones = {
-        neutral: 'bg-gray-50 text-ink-soft border-line',
+        neutral: 'bg-subtle text-ink-soft border-line',
         brand: 'bg-brand-50 text-brand-700 border-brand-100',
-        success: 'bg-green-50 text-green-700 border-green-100',
-        warning: 'bg-amber-50 text-amber-700 border-amber-100',
-        danger: 'bg-red-50 text-red-700 border-red-100',
+        success: 'bg-green-50 text-green-700 border-green-200',
+        warning: 'bg-amber-50 text-amber-700 border-amber-200',
+        danger: 'bg-red-50 text-red-700 border-red-200',
     } as const;
     return <span className={clsx('chip', tones[tone], className)}>{children}</span>;
 }
@@ -170,7 +170,7 @@ export function AvatarStack({ users, max = 3 }: { users: { id: string; firstName
                 </span>
             ))}
             {extra > 0 ? (
-                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gray-100 text-[11px] font-medium text-ink-muted ring-2 ring-surface">
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-subtle text-[11px] font-medium text-ink-muted ring-2 ring-surface">
                     +{extra}
                 </span>
             ) : null}
@@ -183,7 +183,7 @@ export function ProgressBar({ value, className, tone = 'brand' }: { value: numbe
     const bar = { brand: 'bg-brand-500', success: 'bg-state-done', warning: 'bg-amber-500' }[tone];
     return (
         <span
-            className={clsx('block h-1.5 w-full overflow-hidden rounded-full bg-gray-100', className)}
+            className={clsx('block h-1.5 w-full overflow-hidden rounded-full bg-subtle', className)}
             role="progressbar"
             aria-valuenow={clamped}
             aria-valuemin={0}
@@ -258,14 +258,14 @@ export function Modal({
     }, [onClose]);
 
     return (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink/40 px-4 py-16" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-backdrop/50 px-4 py-16 backdrop-blur-sm" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
             <div
                 ref={panel}
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby={heading}
                 tabIndex={-1}
-                className={clsx('card w-full animate-drawer bg-surface outline-none', width)}
+                className={clsx('card animate-fade-in w-full bg-elevated outline-none shadow-pop', width)}
             >
                 <header className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">
                     <div>
@@ -310,7 +310,7 @@ export function Menu({ trigger, children, align = 'right' }: { trigger: (open: b
             {open ? (
                 <div
                     role="menu"
-                    className={clsx('card absolute z-40 mt-1 min-w-[190px] bg-surface p-1', align === 'right' ? 'right-0' : 'left-0')}
+                    className={clsx('card absolute z-40 mt-1 min-w-[190px] animate-fade-in bg-elevated p-1 shadow-pop', align === 'right' ? 'right-0' : 'left-0')}
                     onClick={() => setOpen(false)}
                 >
                     {children}
@@ -341,7 +341,7 @@ export function MenuItem({
             onClick={onSelect}
             className={clsx(
                 'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm transition disabled:opacity-50',
-                tone === 'danger' ? 'text-danger hover:bg-red-50' : 'text-ink-soft hover:bg-gray-100',
+                tone === 'danger' ? 'text-danger hover:bg-red-50' : 'text-ink-soft hover:bg-hover',
             )}
         >
             {icon}
@@ -352,7 +352,7 @@ export function MenuItem({
 
 export function Tabs<T extends string>({ value, onChange, options }: { value: T; onChange: (next: T) => void; options: { value: T; label: string; count?: number }[] }) {
     return (
-        <div role="tablist" className="inline-flex items-center gap-1 rounded-lg border border-line bg-surface p-1">
+        <div role="tablist" className="inline-flex items-center gap-1 rounded-lg border border-line bg-surface p-1 shadow-sm">
             {options.map((option) => (
                 <button
                     key={option.value}
@@ -362,7 +362,7 @@ export function Tabs<T extends string>({ value, onChange, options }: { value: T;
                     onClick={() => onChange(option.value)}
                     className={clsx(
                         'rounded-md px-3 py-1 text-sm transition',
-                        option.value === value ? 'bg-brand-50 font-medium text-brand-700' : 'text-ink-muted hover:bg-gray-100 hover:text-ink',
+                        option.value === value ? 'bg-active font-medium text-brand-700' : 'text-ink-muted hover:bg-hover hover:text-ink',
                     )}
                 >
                     {option.label}
