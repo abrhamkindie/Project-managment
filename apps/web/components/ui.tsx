@@ -149,6 +149,19 @@ export function Avatar({
         />
     );
 
+    const [imgFailed, setImgFailed] = useState(false);
+    // A new avatar (e.g. after a profile edit) is a new chance to load, so clear any past failure.
+    useEffect(() => setImgFailed(false), [user?.avatarUrl]);
+
+    const initialsGlyph = user ? (
+        <span
+            title={name}
+            className={clsx('inline-flex items-center justify-center rounded-full font-semibold', dimensions, avatarTint(user.id), className)}
+        >
+            {initials(user.firstName, user.lastName)}
+        </span>
+    ) : null;
+
     const glyph = !user ? (
         <span
             title="Unassigned"
@@ -156,15 +169,17 @@ export function Avatar({
         >
             ?
         </span>
-    ) : user.avatarUrl ? (
-        <img src={user.avatarUrl} alt={name} title={name} className={clsx('rounded-full object-cover', dimensions, className)} />
-    ) : (
-        <span
+    ) : user.avatarUrl && !imgFailed ? (
+        <img
+            src={user.avatarUrl}
+            alt={name}
             title={name}
-            className={clsx('inline-flex items-center justify-center rounded-full font-semibold', dimensions, avatarTint(user.id), className)}
-        >
-            {initials(user.firstName, user.lastName)}
-        </span>
+            referrerPolicy="no-referrer"
+            className={clsx('rounded-full object-cover', dimensions, className)}
+            onError={() => setImgFailed(true)}
+        />
+    ) : (
+        initialsGlyph
     );
 
     // The wrapper only appears when a dot is asked for, so every existing call site keeps
