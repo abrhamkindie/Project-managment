@@ -2,12 +2,26 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { z } from 'zod';
 import { ApiError } from '~/lib/api';
-import { restoreSession, useLogin, useRegister } from '~/lib/hooks';
+import { restoreSession, useGoogleLogin, useLogin, useRegister } from '~/lib/hooks';
 import { homeFor } from '~/lib/paths';
 import { Button, ErrorNote, Field, Input } from './ui';
+
+/** Google Identity Services global types (loaded via script tag). */
+declare global {
+    interface Window {
+        google?: {
+            accounts: {
+                id: {
+                    initialize: (opts: { client_id: string; callback: (resp: { credential?: string }) => void }) => void;
+                    renderButton: (el: HTMLElement, opts: { theme?: string; size?: string; text?: string; width?: number }) => void;
+                };
+            };
+        };
+    }
+}
 
 /**
  * Sign-in and sign-up in one form.
@@ -36,10 +50,15 @@ export function AuthForm({ mode, redirectTo }: { mode: 'login' | 'register'; red
     const router = useRouter();
     const login = useLogin(redirectTo);
     const register = useRegister(redirectTo);
+    const googleLogin = useGoogleLogin(redirectTo);
     const mutation = mode === 'login' ? login : register;
 
     const [values, setValues] = useState({ firstName: '', lastName: '', email: '', password: '', organizationName: '' });
     const [errors, setErrors] = useState<FormErrors>({});
+    const [googleReady, setGoogleReady] = useState(false);
+    const googleBtnRef = useRef<HTMLDivElement>(null);
+
+    const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 
     // Already signed in (or restorable): do not show a form that cannot be used.
     useEffect(() => {
@@ -51,6 +70,53 @@ export function AuthForm({ mode, redirectTo }: { mode: 'login' | 'register'; red
             active = false;
         };
     }, [redirectTo, router]);
+
+    // Load Google Identity Services script and initialize.
+    // `mutate` from React Query is stable across renders, so the callback is only created once.
+    const googleMutate = googleLogin.mutate;
+    const handleGoogleCredential = useCallback(
+        (response: { credential?: string }) => {
+            if (response.credential) {
+                googleMutate(response.credential);
+            }
+        },
+        [googleMutate],
+    );
+
+    useEffect(() => {
+        if (!googleClientId) return;
+        // If GIS is already loaded, initialize immediately.
+        if (window.google?.accounts?.id) {
+            setGoogleReady(true);
+            return;
+        }
+        const script = document.createElement('script');
+        script.src = 'https://accounts.google.com/gsi/client';
+        script.async = true;
+        script.defer = true;
+        script.onload = () => setGoogleReady(true);
+        document.head.appendChild(script);
+        return () => {
+            // Don't remove the script — it may be needed for re-renders.
+        };
+    }, [googleClientId]);
+
+    useEffect(() => {
+        if (!googleReady || !googleClientId || !window.google?.accounts?.id) return;
+        window.google.accounts.id.initialize({
+            client_id: googleClientId,
+            callback: handleGoogleCredential,
+        });
+        if (googleBtnRef.current) {
+            googleBtnRef.current.innerHTML = '';
+            window.google.accounts.id.renderButton(googleBtnRef.current, {
+                theme: 'outline',
+                size: 'large',
+                text: mode === 'login' ? 'signin_with' : 'signup_with',
+                width: 320,
+            });
+        }
+    }, [googleReady, googleClientId, handleGoogleCredential, mode]);
 
     const set = (key: keyof typeof values) => (event: ChangeEvent<HTMLInputElement>) => {
         setValues((current) => ({ ...current, [key]: event.target.value }));
@@ -146,6 +212,26 @@ export function AuthForm({ mode, redirectTo }: { mode: 'login' | 'register'; red
                     {mode === 'login' ? 'Sign in' : 'Create account'}
                 </Button>
             </form>
+
+            {googleClientId ? (
+                <>
+                    <div className="flex items-center gap-3">
+                        <span className="h-px flex-1 bg-line" />
+                        <span className="text-xs text-ink-faint">or</span>
+                        <span className="h-px flex-1 bg-line" />
+                    </div>
+                    {googleLogin.isError ? (
+                        <ErrorNote error={googleLogin.error} />
+                    ) : null}
+                    <div ref={googleBtnRef} className="flex justify-center">
+                        {!googleReady ? (
+                            <Button variant="ghost" className="w-full border border-line" disabled>
+                                Loading Google sign-in…
+                            </Button>
+                        ) : null}
+                    </div>
+                </>
+            ) : null}
 
             <p className="text-sm text-ink-muted">
                 {mode === 'login' ? (

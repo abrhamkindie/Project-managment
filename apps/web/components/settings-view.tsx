@@ -82,6 +82,13 @@ function ProfileSection({ session }: { session: Session }) {
                 }}
             >
                 <ErrorNote error={profile.update.error} />
+                <div className="flex items-center gap-3">
+                    <Avatar user={session.user} size="lg" />
+                    <div className="min-w-0">
+                        <p className="text-sm font-medium text-ink">{session.user.firstName} {session.user.lastName}</p>
+                        <p className="text-xs text-ink-muted">{session.user.email}</p>
+                    </div>
+                </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                     <Field label="First name">
                         <Input value={firstName} onChange={(event) => setFirstName(event.target.value)} maxLength={60} />

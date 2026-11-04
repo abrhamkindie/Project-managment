@@ -59,6 +59,12 @@ const layout = (title: string, bodyHtml: string, cta?: { label: string; url: str
 const strip = (html: string) => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 
 export const mails = {
+    welcome(input: { to: string; firstName: string; orgName: string; link: string }): Mail {
+        const title = `Welcome to Atlas, ${input.firstName}!`;
+        const body = `<p>Hi ${input.firstName},</p><p>Your workspace <strong>${input.orgName}</strong> is ready. Invite teammates, create your first project, and start tracking work.</p>`;
+        return { to: input.to, subject: title, html: layout(title, body, { label: 'Open your workspace', url: input.link }), text: `${title} ${input.link}` };
+    },
+
     invitation(input: { to: string; orgName: string; inviterName: string; role: string; link: string }): Mail {
         const title = `You have been invited to ${input.orgName}`;
         const body = `<p>${input.inviterName} invited you to join <strong>${input.orgName}</strong> on Atlas as <strong>${input.role}</strong>.</p><p>Accept the invitation within 7 days to get started.</p>`;

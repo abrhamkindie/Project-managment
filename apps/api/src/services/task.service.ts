@@ -135,7 +135,7 @@ export async function getBoard(user: AuthUser, projectId: string) {
     const [sections, tasks] = await Promise.all([
         prisma.section.findMany({ where: { projectId }, orderBy: { position: 'asc' } }),
         prisma.task.findMany({
-            where: { projectId, deletedAt: null, parentTaskId: null },
+            where: { projectId, deletedAt: null },
             include: taskSelectIncludes,
             orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
         }),
@@ -595,13 +595,29 @@ export async function setLabels(user: AuthUser, taskId: string, labelIds: string
     return presentTask(fresh);
 }
 
-/** "My tasks" grouping used by the sidebar view. */
+/**
+ * "My tasks" grouping used by the personal dashboard.
+ *
+ * The assignee query is one hit; project metadata used to be a `findUniqueOrThrow` per distinct
+ * project inside the loop (an N+1 that scaled with the number of projects a person touches).
+ * Now we collect the distinct ids first and fetch them in one batch.
+ */
 export async function myTasks(user: AuthUser, orgId: string) {
     const rows = await prisma.taskAssignee.findMany({
         where: { userId: user.id, task: { deletedAt: null, status: { in: OPEN_STATUSES }, project: { orgId, status: 'active' } } },
         include: { task: { include: taskSelectIncludes } },
         orderBy: { createdAt: 'desc' },
     });
+
+    const distinctProjectIds = [...new Set(rows.map((row) => row.task.projectId))];
+    const projectRows = distinctProjectIds.length
+        ? await prisma.project.findMany({
+            where: { id: { in: distinctProjectIds } },
+            select: { id: true, name: true, color: true },
+        })
+        : [];
+    const projectById = new Map(projectRows.map((p) => [p.id, p]));
+
     const groups = new Map<string, { project: { id: string; name: string; color: string }; tasks: ReturnType<typeof presentTask>[] }>();
     for (const row of rows) {
         const presentable = presentTask(row.task as TaskWithRelations);
@@ -609,10 +625,8 @@ export async function myTasks(user: AuthUser, orgId: string) {
         const existing = groups.get(key);
         if (existing) existing.tasks.push(presentable);
         else {
-            const project = await prisma.project.findUniqueOrThrow({
-                where: { id: key },
-                select: { id: true, name: true, color: true },
-            });
+            const project = projectById.get(key);
+            if (!project) continue; // Should never happen (assignee rows carry an active project), but skip safely rather than throwing.
             groups.set(key, { project, tasks: [presentable] });
         }
     }

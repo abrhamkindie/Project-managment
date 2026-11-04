@@ -120,6 +120,9 @@ export interface ProjectSummary {
     members: (LightUser & { role: ProjectRole; joinedAt: string | null })[];
     memberIds: string[];
     taskCount: number;
+    /** Server-authoritative flags; `listProjects` includes them so the UI can gate actions. */
+    canEdit?: boolean;
+    canDelete?: boolean;
 }
 
 /** `GET /api/projects/:id` — a project plus everything its header shows. */

@@ -42,6 +42,15 @@ export const PRIORITY_CLASS: Record<TaskPriority, string> = {
     urgent: 'text-state-urgent',
 };
 
+/** Left-border tint used by list rows so a column of mixed-priority tasks sorts itself visually. */
+export const PRIORITY_BORDER: Record<TaskPriority, string> = {
+    none: 'border-l-transparent',
+    low: 'border-l-ink-faint/60',
+    medium: 'border-l-sky-500',
+    high: 'border-l-state-high',
+    urgent: 'border-l-state-urgent',
+};
+
 export const HEALTH_LABEL: Record<string, string> = {
     on_track: 'On track',
     at_risk: 'At risk',

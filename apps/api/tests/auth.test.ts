@@ -28,7 +28,7 @@ describe('registration', () => {
 
         const stored = await prisma.user.findUniqueOrThrow({ where: { email } });
         expect(stored.passwordHash).not.toBe(PASSWORD);
-        expect(stored.passwordHash.startsWith('$2')).toBe(true);
+        expect(stored.passwordHash!.startsWith('$2')).toBe(true);
         // The bootstrap workspace owns the org and lists the owner as admin.
         const membership = await prisma.organizationMember.findFirstOrThrow({
             where: { userId: stored.id },

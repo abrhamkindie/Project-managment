@@ -1,9 +1,11 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { asyncHandler } from '../lib/http.js';
 import { validate, input } from '../middleware/validate.js';
 import { authenticate, currentUser } from '../middleware/auth.js';
 import { prisma } from '../lib/prisma.js';
 import * as authService from '../services/auth.service.js';
+import { loginWithGoogle } from '../services/google-auth.service.js';
 import {
     clearSessionCookies,
     readRefreshToken,
@@ -141,5 +143,21 @@ authRouter.post(
         await authService.changePassword(currentUser(req).id, currentPassword, newPassword);
         clearSessionCookies(res);
         res.json({ ok: true, message: 'Password changed, sign in again' });
+    }),
+);
+
+// ---------------------------------------------------------------- Google OAuth
+
+const googleSchema = z.object({ idToken: z.string().min(1, 'Google ID token is required') });
+
+authRouter.post(
+    '/google',
+    authRateLimit,
+    validate(googleSchema),
+    asyncHandler(async (req, res) => {
+        const { idToken } = input<{ idToken: string }>(req);
+        const { userId, tokens } = await loginWithGoogle(idToken, sessionMeta(req));
+        setSessionCookies(res, tokens);
+        res.json(await authService.profile(userId));
     }),
 );

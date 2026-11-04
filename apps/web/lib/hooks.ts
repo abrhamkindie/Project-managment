@@ -282,10 +282,18 @@ export function useDeleteTask(orgId: string) {
         onSuccess: (_result, taskId) => {
             // The delete acknowledgement carries no project, so the column it was in comes from
             // whichever cache still holds the card; without it we just wait for the board refetch.
-            const projectId = client.getQueryData<TaskDetailDto>(keys.task(taskId))?.projectId;
+            const cached = client.getQueryData<TaskDetailDto>(keys.task(taskId));
+            const projectId = cached?.projectId;
             if (projectId) {
                 client.setQueryData(keys.board(projectId), (board: BoardDto | undefined) => (board ? removeTaskFromBoard(board, taskId) : board));
                 void client.invalidateQueries({ queryKey: keys.project(projectId) });
+            }
+            // If this was a subtask, drop it from the parent's cached list so an open drawer
+            // updates immediately; the invalidation reconciles counts and timeline.
+            const parentTaskId = cached?.parentTaskId;
+            if (parentTaskId) {
+                removeSubtaskFromParent(client, parentTaskId, taskId);
+                void client.invalidateQueries({ queryKey: keys.task(parentTaskId) });
             }
             client.removeQueries({ queryKey: keys.task(taskId) });
             void client.invalidateQueries({ queryKey: keys.myTasks(orgId) });
@@ -598,6 +606,18 @@ export function useRegister(redirectTo?: string) {
     });
 }
 
+export function useGoogleLogin(redirectTo?: string) {
+    const client = useQueryClient();
+    const router = useRouter();
+    return useMutation({
+        mutationFn: (idToken: string) => api.post<Session>('/auth/google', { idToken }, { retryOn401: false }),
+        onSuccess: (session) => {
+            client.setQueryData(keys.session, session);
+            router.replace(redirectTo ?? homeFor(session));
+        },
+    });
+}
+
 /**
  * Silent session restore for the signed-out screens.
  *
@@ -676,10 +696,43 @@ function invalidateBoard(client: QueryClient, projectId: string) {
  *
  * The board cache is patched in place — a refetch would flash the column the user is looking
  * at — the detail cache is merged so an open drawer updates instantly, and the aggregate
- * project counters are marked stale because status or position probably moved.
+ * project counters are marked stale because status or position probably moved. When the task
+ * is a subtask we also upsert it into the parent's cached `subtasks` array so the drawer's
+ * Subtasks tab reflects the change without a round-trip.
  */
 export function applyTaskToCaches(client: QueryClient, task: TaskCardDto) {
     client.setQueryData(keys.board(task.projectId), (board: BoardDto | undefined) => (board ? mergeTaskIntoBoard(board, task) : board));
     client.setQueryData(keys.task(task.id), (detail: TaskDetailDto | undefined) => (detail ? { ...detail, ...task } : detail));
+    if (task.parentTaskId) {
+        upsertSubtaskInParent(client, task.parentTaskId, task);
+        void client.invalidateQueries({ queryKey: keys.task(task.parentTaskId) });
+    }
     void client.invalidateQueries({ queryKey: keys.project(task.projectId) });
 }
+
+/**
+ * Inserts or replaces `sub` inside the cached parent's `subtasks` array, keeping the array
+ * sorted by `position` so the drawer's order matches the server's. Safe to call when the
+ * parent is not currently cached — it becomes a no-op and the follow-up invalidation will
+ * refetch it.
+ */
+function upsertSubtaskInParent(client: QueryClient, parentTaskId: string, sub: TaskCardDto) {
+    client.setQueryData(keys.task(parentTaskId), (parent: TaskDetailDto | undefined) => {
+        if (!parent) return parent;
+        const next = parent.subtasks.filter((s) => s.id !== sub.id);
+        next.push(sub);
+        next.sort((a, b) => a.position - b.position);
+        const subtaskCount = next.length;
+        return { ...parent, subtasks: next, subtaskCount };
+    });
+}
+
+/** Removes `subTaskId` from the cached parent's `subtasks` array and adjusts the count. */
+function removeSubtaskFromParent(client: QueryClient, parentTaskId: string, subTaskId: string) {
+    client.setQueryData(keys.task(parentTaskId), (parent: TaskDetailDto | undefined) => {
+        if (!parent) return parent;
+        const next = parent.subtasks.filter((s) => s.id !== subTaskId);
+        return { ...parent, subtasks: next, subtaskCount: next.length };
+    });
+}
+

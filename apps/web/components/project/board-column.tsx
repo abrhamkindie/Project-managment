@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CheckCircle2, Circle, Ellipsis, Trash2, PencilLine } from 'lucide-react';
@@ -65,7 +65,49 @@ export function BoardColumn({
     const sections = useSections(projectId);
     const [draft, setDraft] = useState<string | null>(null);
     const [confirming, setConfirming] = useState(false);
+    const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
     const drop = useDroppable({ id: columnDroppableId(section?.id ?? null), disabled: !droppable });
+
+    // Build a forest keyed on parentTaskId using only the tasks that live in this column.
+    // A subtask whose parent is in another column is not nested — it just sits here as its own
+    // root, so nothing disappears when parents and children get split across sections.
+    const { visible, childrenByParent, depthByTaskId } = useMemo(() => {
+        const inThisColumn = new Set(tasks.map((t) => t.id));
+        const kidsByParent = new Map<string, TaskCardDto[]>();
+        const roots: TaskCardDto[] = [];
+        for (const t of tasks) {
+            const parentId = t.parentTaskId;
+            if (parentId && inThisColumn.has(parentId)) {
+                const arr = kidsByParent.get(parentId) ?? [];
+                arr.push(t);
+                kidsByParent.set(parentId, arr);
+            } else {
+                roots.push(t);
+            }
+        }
+        const out: TaskCardDto[] = [];
+        const depths = new Map<string, number>();
+        const walk = (list: TaskCardDto[], depth: number) => {
+            for (const t of list) {
+                out.push(t);
+                depths.set(t.id, depth);
+                if (expandedIds.has(t.id)) {
+                    const kids = kidsByParent.get(t.id);
+                    if (kids) walk(kids, depth + 1);
+                }
+            }
+        };
+        walk(roots, 0);
+        return { visible: out, childrenByParent: kidsByParent, depthByTaskId: depths };
+    }, [tasks, expandedIds]);
+
+    const toggle = (id: string) =>
+        setExpandedIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
 
     const commit = (event?: FormEvent) => {
         event?.preventDefault();
@@ -142,12 +184,23 @@ export function BoardColumn({
                 <span className="text-xs text-ink-faint">{tasks.length}</span>
             </header>
 
-            <SortableContext items={tasks.map((task) => task.id)} strategy={verticalListSortingStrategy}>
+            <SortableContext items={visible.map((task) => task.id)} strategy={verticalListSortingStrategy}>
                 <div className="flex-1 space-y-2 overflow-y-auto px-3 py-2">
-                    {tasks.map((task) => (
-                        <TaskCard key={task.id} task={task} onOpen={onOpen} draggable={draggable} selected={task.id === selectedTaskId} />
+                    {visible.map((task) => (
+                        <TaskCard
+                            key={task.id}
+                            task={task}
+                            onOpen={onOpen}
+                            draggable={draggable}
+                            selected={task.id === selectedTaskId}
+                            depth={depthByTaskId.get(task.id) ?? 0}
+                            hasVisibleChildren={childrenByParent.has(task.id)}
+                            childCount={childrenByParent.get(task.id)?.length ?? 0}
+                            expanded={expandedIds.has(task.id)}
+                            onToggleExpand={() => toggle(task.id)}
+                        />
                     ))}
-                    {tasks.length === 0 ? (
+                    {visible.length === 0 ? (
                         <p className="rounded-lg border border-dashed border-line px-3 py-6 text-center text-xs text-ink-faint">
                             {section ? 'Drop a card here' : 'Nothing waiting for a column'}
                         </p>

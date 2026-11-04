@@ -184,6 +184,31 @@ const PROJECTS: ProjectSpec[] = [
     },
 ];
 
+const SUBTASK_TITLES = [
+    'Understanding client design brief',
+    'Collect moodboards about KPI programs',
+    'Meeting & Mind Mapping with Tyler',
+    'Wireframing and Creating alternative versions',
+    'Gather employee feedback survey results',
+    'Define success metrics for the dashboard',
+    'Review accessibility requirements',
+    'Prototype interactive chart components',
+    'Set up CI/CD pipeline for staging',
+    'Write integration tests for API endpoints',
+    'Prepare stakeholder demo deck',
+    'Performance audit on data queries',
+] as const;
+
+const SUBTASK_DESCRIPTIONS = [
+    'Blocker: The brief from client was not clear so it took time to understand it 😅',
+    'Note: Some employees have different KPI cases',
+    'Need to coordinate with the data team before finalizing numbers.',
+    'Waiting on approval from design review before proceeding.',
+    'Cross-team dependency — sync with backend first.',
+    null,
+    null,
+] as const;
+
 const COMMENT_BODIES = [
     'Pushed a first draft — feedback welcome before I go further.',
     'Blocked on the API contract, can we sync today?',
@@ -195,6 +220,10 @@ const COMMENT_BODIES = [
     'Nice, this unblocks the migration work.',
     'Can we get a screenshot for the launch post?',
     'Reduced scope to the must-haves so we keep the date.',
+    'Hey @Dawson Terman, wanted to discuss the upcoming page design? I think it\u2019s crucial for us to have a clear vision of what we want to achieve with this platform. Any initial thoughts?',
+    'Absolutely, @Calum Tyler. I think the design should prioritize simplicity and accessibility.',
+    'Yup that\u2019s right. It should be user-friendly and intuitive.',
+    'Great work everyone! Let\u2019s keep the momentum going. @Priya Raman can you review the metrics?',
 ];
 
 const DESCRIPTIONS = [
@@ -470,25 +499,39 @@ async function main() {
             }
 
             // Subtasks on a few items, always inheriting the parent project/section.
-            if (chance(0.18)) {
-                for (const childTitle of ['Investigate', 'Write it up'] as const) {
+            if (chance(0.22)) {
+                const subtaskCount = intBetween(2, 4);
+                const subtaskTitles = shuffle([...SUBTASK_TITLES]).slice(0, subtaskCount);
+                for (const childTitle of subtaskTitles) {
                     const childStatus = isDone ? 'done' : pick(['todo', 'in_progress', 'in_review'] as const);
                     const childCreated = new Date(createdAt.getTime() + intBetween(1, 30) * 3_600_000);
+                    const childDue = chance(0.6) ? new Date(childCreated.getTime() + intBetween(2, 14) * 86_400_000) : null;
+                    const childDesc = pick(SUBTASK_DESCRIPTIONS);
                     const child = await prisma.task.create({
                         data: {
                             projectId: project.id,
                             sectionId: sections.get(STATUS_SECTION[childStatus])!,
                             parentTaskId: task.id,
-                            title: `${childTitle}: ${task.title}`.slice(0, 120),
+                            title: childTitle,
+                            description: childDesc,
                             status: childStatus,
-                            priority: 'low',
-                            dueDate: task.dueDate,
+                            priority: pick(['none', 'low', 'medium', 'high'] as const),
+                            dueDate: childDue,
                             createdById: creatorId,
                             completedAt: childStatus === 'done' ? new Date(childCreated.getTime() + intBetween(2, 48) * 3_600_000) : null,
                             createdAt: childCreated,
                         },
                     });
                     taskCount += 1;
+
+                    // Assign 1-2 members to the subtask so the drawer shows avatars.
+                    const childAssignee = pick(memberIds);
+                    await prisma.taskAssignee.create({ data: { taskId: child.id, userId: childAssignee, isPrimary: true, createdAt: childCreated } });
+                    if (chance(0.4)) {
+                        const second = pick(memberIds.filter((m) => m !== childAssignee));
+                        if (second) await prisma.taskAssignee.create({ data: { taskId: child.id, userId: second, isPrimary: false, createdAt: childCreated } });
+                    }
+
                     activities.push({
                         orgId: org.id,
                         projectId: project.id,
@@ -498,6 +541,38 @@ async function main() {
                         meta: JSON.stringify({ title: child.title, parentTitle: task.title }),
                         createdAt: childCreated,
                     });
+
+                    // Nested subtasks (grandchildren) for tree testing — 15% chance per subtask.
+                    if (chance(0.15)) {
+                        const grandTitle = pick(['Review findings', 'Draft summary', 'Get sign-off']);
+                        const grandStatus = pick(['todo', 'in_progress'] as const);
+                        const grandCreated = new Date(childCreated.getTime() + intBetween(1, 20) * 3_600_000);
+                        const grand = await prisma.task.create({
+                            data: {
+                                projectId: project.id,
+                                sectionId: sections.get(STATUS_SECTION[grandStatus])!,
+                                parentTaskId: child.id,
+                                title: grandTitle,
+                                description: chance(0.5) ? 'Follow-up from parent subtask.' : null,
+                                status: grandStatus,
+                                priority: 'low',
+                                dueDate: chance(0.5) ? new Date(grandCreated.getTime() + intBetween(3, 10) * 86_400_000) : null,
+                                createdById: creatorId,
+                                createdAt: grandCreated,
+                            },
+                        });
+                        taskCount += 1;
+                        await prisma.taskAssignee.create({ data: { taskId: grand.id, userId: pick(memberIds), isPrimary: true, createdAt: grandCreated } });
+                        activities.push({
+                            orgId: org.id,
+                            projectId: project.id,
+                            taskId: grand.id,
+                            actorId: creatorId,
+                            type: 'subtask.created',
+                            meta: JSON.stringify({ title: grand.title, parentTitle: child.title }),
+                            createdAt: grandCreated,
+                        });
+                    }
                 }
             }
 

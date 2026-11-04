@@ -2,24 +2,29 @@
 
 import { useMemo, useState } from 'react';
 import { PencilLine, Send, Trash2 } from 'lucide-react';
-import { describeActivity, formatDateTime, fullName, relativeTime } from '~/lib/format';
+import { formatDateTime, fullName, relativeTime } from '~/lib/format';
 import { useComments } from '~/lib/hooks';
 import type { TaskDetailDto, TimelineEntry } from '~/lib/types';
 import { Avatar, Button, Textarea } from '../ui';
 
 /**
- * The conversation under a task, with the audit trail interleaved.
+ * The conversation under a task.
  *
- * The API returns one merged list (oldest first) so the order a reader sees is the order things
- * actually happened, including the system rows nobody typed.
+ * Only comment entries from the timeline are rendered here; activity rows live in their own
+ * tab (see `ActivitiesPanel` in drawer.tsx). The API returns one merged list so the order a
+ * reader sees is the order things actually happened.
  */
 export function Discussion({ task, viewerId, canComment }: { task: TaskDetailDto; viewerId: string; canComment: boolean }) {
     const comments = useComments(task.id);
     const [draft, setDraft] = useState('');
     const [editing, setEditing] = useState<string | null>(null);
 
+    // Filter to comments only — activities are handled by the Activities tab.
     // The composer sits at the bottom, so newest work is nearest the cursor.
-    const entries = useMemo(() => [...task.timeline].reverse(), [task.timeline]);
+    const entries = useMemo(
+        () => [...task.timeline].filter((e): e is Extract<TimelineEntry, { kind: 'comment' }> => e.kind === 'comment').reverse(),
+        [task.timeline],
+    );
 
     const submit = () => {
         const body = draft.trim();
@@ -28,11 +33,11 @@ export function Discussion({ task, viewerId, canComment }: { task: TaskDetailDto
     };
 
     return (
-        <section className="space-y-3" aria-label="Discussion">
-            <h3 className="text-xs font-semibold uppercase text-ink-faint">Discussion</h3>
+        <section className="space-y-3" aria-label="Comments">
+            <h3 className="text-xs font-semibold uppercase text-ink-faint">Comments</h3>
 
             {entries.length === 0 ? (
-                <p className="text-sm text-ink-muted">Nothing said yet. Comments mention the people who follow this task.</p>
+                <p className="text-sm text-ink-muted">No comments yet. Comments mention the people who follow this task.</p>
             ) : (
                 <ul className="space-y-2.5">
                     {entries.map((entry) => (
@@ -88,7 +93,7 @@ function TimelineRow({
     onSave,
     onDelete,
 }: {
-    entry: TimelineEntry;
+    entry: Extract<TimelineEntry, { kind: 'comment' }>;
     viewerId: string;
     editing: boolean;
     onEdit: (id: string) => void;
@@ -96,20 +101,6 @@ function TimelineRow({
     onSave: (id: string, body: string) => void;
     onDelete: (id: string) => void;
 }) {
-    if (entry.kind === 'activity') {
-        return (
-            <li className="flex items-start gap-2 text-xs text-ink-muted">
-                <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-gray-300" aria-hidden />
-                <p className="flex-1">
-                    <span className="font-medium text-ink-soft">{fullName(entry.actor)}</span> {describeActivity(entry)}
-                    <span className="ml-1.5 whitespace-nowrap text-ink-faint" title={formatDateTime(entry.createdAt)}>
-                        {relativeTime(entry.createdAt)}
-                    </span>
-                </p>
-            </li>
-        );
-    }
-
     const mine = entry.author.id === viewerId;
     const body = editing ? entry.body : null;
 

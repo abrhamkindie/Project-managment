@@ -159,10 +159,16 @@ export async function listProjects(user: AuthUser, orgId: string, query: Project
     return {
         items: rows.map((row) => {
             const p = progress.get(row.id) ?? { total: 0, done: 0 };
+            // Mirrors the rules in `domain/permissions.ts` so the list page can decide whether
+            // to render Archive / Delete affordances without a round-trip to `getProject`.
+            const isLead = row.members.some((m) => m.userId === user.id && m.role === 'lead');
+            const isCreator = row.createdById === user.id;
             return {
                 ...presentProject(row),
                 completedTasks: p.done,
                 progress: p.total === 0 ? 0 : Math.round((p.done / p.total) * 100),
+                canEdit: managerPlus || isLead || isCreator,
+                canDelete: managerPlus || isCreator,
             };
         }),
         total,

@@ -3,6 +3,8 @@ import { Conflict, Unauthorized } from '../domain/errors.js';
 import { hashPassword, uniqueSlug, verifyPassword } from '../lib/crypto.js';
 import { createSession, revokeAllSessions, type SessionTokens } from './session.js';
 import { presentUser } from './presenters.js';
+import { env } from '../config/env.js';
+import { mails, sendMail } from './mailer.js';
 import type { LoginInput, RegisterInput, UpdateProfileInput } from '../domain/schemas.js';
 import type { OrgRole } from '../domain/enums.js';
 
@@ -49,6 +51,14 @@ export async function register(input: RegisterInput, meta: SessionMeta): Promise
         },
     });
 
+    // Fire-and-forget welcome email — must never block or fail registration.
+    void sendMail(mails.welcome({
+        to: email,
+        firstName: input.firstName,
+        orgName,
+        link: `${env.WEB_URL}/w/${slug}/dashboard`,
+    }));
+
     const tokens = await createSession(user.id, meta);
     return { userId: user.id, tokens };
 }
@@ -60,7 +70,7 @@ export async function login(input: LoginInput, meta: SessionMeta): Promise<Authe
         await verifyPassword(input.password, '$2a$10$invalidinvalidinvalidinvalidinvalidinvalidinvalidinvalidin');
         throw new Unauthorized('Incorrect email or password');
     }
-    if (!(await verifyPassword(input.password, user.passwordHash))) {
+    if (!(await verifyPassword(input.password, user.passwordHash ?? ''))) {
         throw new Unauthorized('Incorrect email or password');
     }
     if (!user.isActive) throw new Unauthorized('This account has been deactivated');
@@ -124,7 +134,7 @@ export async function updateProfile(userId: string, input: UpdateProfileInput) {
 
 export async function changePassword(userId: string, currentPassword: string, newPassword: string): Promise<void> {
     const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
-    if (!(await verifyPassword(currentPassword, user.passwordHash))) {
+    if (!(await verifyPassword(currentPassword, user.passwordHash ?? ''))) {
         throw new Unauthorized('Current password is incorrect');
     }
     await prisma.user.update({ where: { id: userId }, data: { passwordHash: await hashPassword(newPassword) } });

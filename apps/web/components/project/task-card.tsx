@@ -1,6 +1,6 @@
 'use client';
 
-import { CalendarDays, CheckCircle2, Flag, ListTree, MessageSquare, Paperclip } from 'lucide-react';
+import { CalendarDays, CheckCircle2, ChevronDown, ChevronRight, Flag, ListTree, MessageSquare, Paperclip } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -14,6 +14,10 @@ import { AvatarStack } from '../ui';
  *
  * It shows what a reader decides from at a glance — who owns it, whether it is late, how much
  * discussion it has — and nothing that requires a second look-up.
+ *
+ * On the board, subtasks nest inside their parent through the `depth` prop. A child card gets an
+ * indent, a vertical rail on the left, and a short horizontal tick connecting it to the parent,
+ * so a column of mixed parents and children still reads as a tree.
  */
 export function TaskCard({
     task,
@@ -21,6 +25,11 @@ export function TaskCard({
     draggable = false,
     overlay = false,
     selected = false,
+    depth = 0,
+    hasVisibleChildren = false,
+    childCount = 0,
+    expanded = false,
+    onToggleExpand,
 }: {
     task: TaskCardDto;
     onOpen: (taskId: string) => void;
@@ -28,6 +37,14 @@ export function TaskCard({
     overlay?: boolean;
     /** The drawer is open on this card — ring it and make sure it is on screen. */
     selected?: boolean;
+    /** 0 for root cards; increments for each level of nesting. */
+    depth?: number;
+    /** Whether the parent's subtasks are in this same column (only then can it be toggled). */
+    hasVisibleChildren?: boolean;
+    /** How many subtasks live here — used in the aria-label so screen readers announce the state. */
+    childCount?: number;
+    expanded?: boolean;
+    onToggleExpand?: () => void;
 }) {
     const sortable = useSortable({ id: task.id, disabled: !draggable });
     const tone = dueTone(task.dueDate, task.status, task.isOverdue);
@@ -50,7 +67,7 @@ export function TaskCard({
         ? { transform: CSS.Transform.toString(sortable.transform), transition: sortable.transition }
         : undefined;
 
-    return (
+    const card = (
         <div
             ref={draggable ? setRefs : nodeRef}
             style={style}
@@ -72,7 +89,7 @@ export function TaskCard({
             <p className="flex items-start gap-1.5 text-sm font-medium text-ink">
                 {task.status === 'done' ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-state-done" /> : null}
                 {task.isMilestone ? <Flag className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" /> : null}
-                <span className={clsx('min-w-0 flex-1', task.status === 'done' && 'text-ink-muted line-through')}>{task.title}</span>
+                <span className={clsx('min-w-0 flex-1', task.status === 'done' && 'text-ink-muted line-through', task.parentTaskId && !expanded && 'text-ink-soft')}>{task.title}</span>
             </p>
 
             {task.labels.length > 0 ? (
@@ -109,10 +126,35 @@ export function TaskCard({
                         </span>
                     ) : null}
                     {task.subtaskCount > 0 ? (
-                        <span className="inline-flex items-center gap-1" title={`${task.subtaskCount} subtasks`}>
-                            <ListTree className="h-3.5 w-3.5" />
-                            {task.subtaskCount}
-                        </span>
+                        hasVisibleChildren ? (
+                            <button
+                                type="button"
+                                onClick={(event) => {
+                                    // The card root is `role=button` for open-on-click; without
+                                    // stopPropagation the same click would also fire the drawer.
+                                    event.stopPropagation();
+                                    onToggleExpand?.();
+                                }}
+                                aria-expanded={expanded}
+                                aria-label={expanded ? `Collapse ${childCount} subtask${childCount === 1 ? '' : 's'}` : `Expand ${childCount} subtask${childCount === 1 ? '' : 's'}`}
+                                title={expanded ? 'Hide subtasks' : 'Show subtasks'}
+                                className={clsx(
+                                    'inline-flex items-center gap-1 rounded px-1 tabular-nums transition',
+                                    expanded ? 'bg-subtle text-ink' : 'hover:bg-subtle hover:text-ink',
+                                )}
+                            >
+                                {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                                <ListTree className="h-3.5 w-3.5" />
+                                {childCount}
+                            </button>
+                        ) : (
+                            // Subtasks exist but none are in this column (filtered out, or moved to
+                            // another section). Non-interactive so we don't imply an empty toggle.
+                            <span className="inline-flex items-center gap-1" title={`${task.subtaskCount} subtask${task.subtaskCount === 1 ? '' : 's'} elsewhere`}>
+                                <ListTree className="h-3.5 w-3.5" />
+                                {task.subtaskCount}
+                            </span>
+                        )
                     ) : null}
                 </span>
 
@@ -121,6 +163,17 @@ export function TaskCard({
                     <AvatarStack users={task.assignees} max={3} />
                 </span>
             </div>
+        </div>
+    );
+
+    if (depth === 0) return card;
+
+    return (
+        <div className="relative ml-6 border-l border-line pl-3">
+            {/* Horizontal tick connecting the child to the parent's rail. Aligned with the top of
+                the card body so it visually hangs off the rail, not off the card border. */}
+            <span className="absolute -left-3 top-4 h-px w-2 bg-line" aria-hidden />
+            {card}
         </div>
     );
 }
