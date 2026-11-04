@@ -31,12 +31,26 @@ function apply(resolved: Resolved) {
 const ThemeContext = createContext<{ theme: Theme; resolved: Resolved; setTheme: (next: Theme) => void } | null>(null);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-    const [theme, setThemeState] = useState<Theme>(() => {
-        if (typeof window === 'undefined') return 'system';
-        return (window.localStorage.getItem(STORAGE_KEY) as Theme) || 'system';
-    });
-    const [resolved, setResolved] = useState<Resolved>(() => resolve(theme));
+    // Both sides of hydration must render the same tree, so the stored theme is *not* read during
+    // init (that caused an aria-checked mismatch in ThemeToggle). The inline script in the root
+    // layout already paints the right theme; this effect only syncs React state to match, one
+    // microtask before the browser paints, so there is still no flash.
+    const [theme, setThemeState] = useState<Theme>('system');
+    const [resolved, setResolved] = useState<Resolved>('light');
 
+    useEffect(() => {
+        let stored: Theme = 'system';
+        try {
+            stored = (window.localStorage.getItem(STORAGE_KEY) as Theme) || 'system';
+        } catch {
+            /* storage disabled — stay on the default the boot script already applied */
+        }
+        const next = resolve(stored);
+        setThemeState(stored);
+        setResolved(next);
+        apply(next);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- run once; live updates come from setTheme below
+    }, []);
     const setTheme = useCallback((next: Theme) => {
         setThemeState(next);
         try {

@@ -31,3 +31,4 @@ logs/
 coverage/
 .DS_Store
 server.pid
+.superpowers/

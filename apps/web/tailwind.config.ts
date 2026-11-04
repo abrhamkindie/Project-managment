@@ -34,6 +34,7 @@ const config: Config = {
                 },
                 accent: token('accent'),
                 'accent-hover': token('accent-hover'),
+                'on-accent': token('on-accent'),
 
                 // Surfaces, layered from deepest to raised.
                 canvas: token('canvas'),

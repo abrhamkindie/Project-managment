@@ -14,51 +14,52 @@
     :root {
         color-scheme: light;
 
-        /* brand: tintable ramp (chips, links, active nav) */
-        --brand-50: 238 242 255;
-        --brand-100: 224 231 255;
-        --brand-200: 199 210 254;
-        --brand-300: 165 180 252;
-        --brand-400: 129 140 248;
-        --brand-500: 99 102 241;
-        --brand-600: 79 70 229;
-        --brand-700: 67 56 202;
-        --brand-800: 55 48 163;
-        --brand-900: 49 46 129;
+        /* Atlassian blue ramp (B50–B900-ish) */
+        --brand-50: 222 235 255;
+        --brand-100: 179 212 255;
+        --brand-200: 76 154 255;
+        --brand-300: 38 132 255;
+        --brand-400: 6 110 230;
+        --brand-500: 0 82 204;
+        --brand-600: 7 71 166;
+        --brand-700: 9 50 108;
+        --brand-800: 7 39 84;
+        --brand-900: 9 30 66;
 
-        /* accent: solid control color (does not invert to a light value) */
-        --accent: 79 70 229;
-        --accent-hover: 67 56 202;
+        /* accent: solid control color; on-accent is the label drawn on top of it */
+        --accent: 0 82 204;
+        --accent-hover: 7 71 166;
+        --on-accent: 255 255 255;
 
-        /* surfaces */
-        --canvas: 248 250 252;
+        /* Atlassian-ish neutrals */
+        --canvas: 244 245 247;
         --surface: 255 255 255;
         --elevated: 255 255 255;
-        --subtle: 241 245 249;
-        --hover: 241 245 249;
-        --active: 238 242 255;
-        --backdrop: 15 23 42;
+        --subtle: 244 245 247;
+        --hover: 235 236 240;
+        --active: 222 235 255;
+        --backdrop: 23 43 77;
 
         /* lines + text */
-        --line: 226 232 240;
-        --line-strong: 203 213 225;
-        --ink: 15 23 42;
-        --ink-soft: 51 65 85;
-        --ink-muted: 100 116 139;
-        --ink-faint: 148 163 184;
-        --danger: 220 38 38;
+        --line: 223 225 230;
+        --line-strong: 193 199 208;
+        --ink: 23 43 77;
+        --ink-soft: 68 84 111;
+        --ink-muted: 98 111 134;
+        --ink-faint: 151 160 175;
+        --danger: 222 53 11;
 
         /* neutral + tone ramps (repointed Tailwind defaults) */
-        --gray-50: 248 250 252;
-        --gray-100: 241 245 249;
-        --gray-200: 226 232 240;
-        --gray-300: 203 213 225;
-        --gray-400: 148 163 184;
-        --gray-500: 100 116 139;
-        --gray-600: 71 85 105;
-        --gray-700: 51 65 85;
-        --gray-800: 30 41 59;
-        --gray-900: 15 23 42;
+        --gray-50: 244 245 247;
+        --gray-100: 235 236 240;
+        --gray-200: 223 225 230;
+        --gray-300: 193 199 208;
+        --gray-400: 151 160 175;
+        --gray-500: 98 111 134;
+        --gray-600: 68 84 111;
+        --gray-700: 68 84 111;
+        --gray-800: 37 56 88;
+        --gray-900: 23 43 77;
 
         --green-50: 240 253 244;
         --green-100: 220 252 231;
@@ -91,76 +92,77 @@
     .dark {
         color-scheme: dark;
 
-        --brand-50: 38 35 84;
-        --brand-100: 49 46 129;
-        --brand-200: 67 56 202;
-        --brand-300: 129 140 248;
-        --brand-400: 129 140 248;
-        --brand-500: 129 140 248;
-        --brand-600: 99 102 241;
-        --brand-700: 165 180 252;
-        --brand-800: 199 210 254;
-        --brand-900: 224 231 255;
+        /* Atlassian-style dark: cool navy surfaces + brand blue accents */
+        --brand-50: 13 33 64;
+        --brand-100: 16 42 84;
+        --brand-200: 20 58 120;
+        --brand-300: 38 132 255;
+        --brand-400: 76 154 255;
+        --brand-500: 87 157 255;
+        --brand-600: 87 157 255;
+        --brand-700: 153 197 255;
+        --brand-800: 204 224 255;
+        --brand-900: 222 235 255;
 
-        --accent: 79 70 229;
-        --accent-hover: 99 102 241;
+        --accent: 87 157 255;
+        --accent-hover: 121 173 255;
+        --on-accent: 9 30 66;
 
-        --canvas: 10 12 17;
-        --surface: 18 21 28;
-        --elevated: 24 28 37;
-        --subtle: 28 32 42;
-        --hover: 32 38 50;
-        --active: 38 35 84;
+        --canvas: 22 26 29;
+        --surface: 34 39 43;
+        --elevated: 40 46 51;
+        --subtle: 40 46 51;
+        --hover: 46 53 59;
+        --active: 13 33 64;
         --backdrop: 0 0 0;
 
-        --line: 39 44 55;
-        --line-strong: 56 64 79;
-        --ink: 233 237 243;
-        --ink-soft: 203 210 222;
-        --ink-muted: 150 160 178;
-        --ink-faint: 108 119 138;
-        --danger: 248 113 113;
+        --line: 56 64 72;
+        --line-strong: 74 85 96;
+        --ink: 236 240 244;
+        --ink-soft: 196 205 213;
+        --ink-muted: 158 168 179;
+        --ink-faint: 112 124 136;
+        --danger: 255 143 115;
 
-        --gray-50: 24 28 37;
-        --gray-100: 32 38 50;
-        --gray-200: 39 44 55;
-        --gray-300: 56 64 79;
-        --gray-400: 108 119 138;
-        --gray-500: 150 160 178;
-        --gray-600: 150 160 178;
-        --gray-700: 203 210 222;
-        --gray-800: 224 229 236;
-        --gray-900: 240 243 248;
+        --gray-50: 34 39 43;
+        --gray-100: 40 46 51;
+        --gray-200: 56 64 72;
+        --gray-300: 74 85 96;
+        --gray-400: 112 124 136;
+        --gray-500: 158 168 179;
+        --gray-600: 158 168 179;
+        --gray-700: 196 205 213;
+        --gray-800: 220 227 234;
+        --gray-900: 236 240 244;
 
-        --green-50: 20 40 30;
-        --green-100: 24 52 38;
-        --green-200: 34 72 52;
-        --green-500: 74 222 128;
-        --green-600: 74 222 128;
-        --green-700: 134 239 172;
+        --green-50: 16 36 24;
+        --green-100: 20 48 30;
+        --green-200: 28 68 42;
+        --green-500: 87 217 163;
+        --green-600: 87 217 163;
+        --green-700: 127 232 186;
 
-        --red-50: 45 21 24;
-        --red-100: 58 26 30;
-        --red-200: 78 34 40;
-        --red-500: 248 113 113;
-        --red-600: 248 113 113;
-        --red-700: 252 165 165;
+        --red-50: 48 20 16;
+        --red-100: 64 26 20;
+        --red-200: 88 34 26;
+        --red-500: 255 143 115;
+        --red-600: 255 143 115;
+        --red-700: 255 189 173;
 
-        --amber-50: 43 33 10;
+        --amber-50: 42 32 10;
         --amber-100: 54 42 14;
         --amber-200: 72 56 18;
-        --amber-500: 251 191 36;
-        --amber-600: 251 191 36;
-        --amber-700: 252 211 77;
-        --amber-800: 253 224 71;
+        --amber-500: 255 196 0;
+        --amber-600: 255 196 0;
+        --amber-700: 255 220 102;
+        --amber-800: 255 232 153;
 
-        --sky-100: 22 48 66;
-        --sky-500: 56 189 248;
-        --sky-600: 56 189 248;
-        --sky-700: 125 211 252;
+        --sky-100: 16 40 64;
+        --sky-500: 87 157 255;
+        --sky-600: 87 157 255;
+        --sky-700: 153 197 255;
 
-        /* Shadows read as glow against a dark background. */
-        --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3), 0 1px 3px rgb(0 0 0 / 0.4);
+        --shadow-card: 0 1px 1px rgb(0 0 0 / 0.35), 0 0 1px rgb(0 0 0 / 0.5);
     }
 
     html,
@@ -212,11 +214,12 @@
 
     /* ------------------------------------------------------------------ controls */
     .btn {
-        @apply inline-flex h-9 select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 text-[13px] font-medium tracking-tight transition-[background,color,box-shadow,transform] duration-150 disabled:pointer-events-none disabled:opacity-50 active:scale-[0.98];
+        @apply inline-flex h-8 select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-[3px] px-3 text-[14px] font-medium tracking-tight transition-[background,color,box-shadow,transform] duration-150 disabled:pointer-events-none disabled:opacity-50 active:scale-[0.98];
     }
 
     .btn-primary {
-        @apply btn bg-accent text-white shadow-sm hover:bg-accent-hover focus-visible:ring-accent/50;
+        @apply btn bg-accent shadow-sm hover:bg-accent-hover focus-visible:ring-accent/50;
+        color: rgb(var(--on-accent));
     }
 
     .btn-secondary {
@@ -236,11 +239,11 @@
     }
 
     .btn-icon {
-        @apply h-9 w-9 px-0;
+        @apply h-8 w-8 px-0;
     }
 
     .field {
-        @apply w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink shadow-sm transition placeholder:text-ink-faint focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/40 disabled:bg-canvas disabled:text-ink-faint;
+        @apply w-full rounded-[3px] border border-line bg-surface px-3 py-1.5 text-sm text-ink shadow-sm transition placeholder:text-ink-faint focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/40 disabled:bg-canvas disabled:text-ink-faint;
     }
 
     .label {
@@ -253,7 +256,7 @@
 
     /* -------------------------------------------------------------------- layout */
     .card {
-        @apply rounded-xl border border-line bg-surface shadow-card;
+        @apply rounded-[3px] border border-line bg-surface shadow-card;
     }
 
     .panel {
@@ -265,21 +268,21 @@
     }
 
     .nav-item {
-        @apply relative flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium text-ink-soft transition hover:bg-hover hover:text-ink;
+        @apply relative flex items-center gap-2.5 rounded-[3px] px-2 py-1.5 text-[14px] font-medium text-ink-soft transition hover:bg-hover hover:text-ink;
     }
 
     .nav-item-active {
         @apply bg-active text-brand-700 hover:bg-active;
     }
 
-    /* The accent rail that marks the active section, Linear-style. */
+    /* Left accent rail — Jira/Atlassian active marker */
     .nav-item-active::before {
-        @apply absolute -left-3 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-brand-500 content-[''];
+        @apply absolute -left-2.5 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-full bg-brand-500 content-[''];
     }
 
     /* ---------------------------------------------------------------------- bits */
     .chip {
-        @apply inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 text-xs font-medium text-ink-soft;
+        @apply inline-flex items-center gap-1 rounded-[3px] border border-line px-2 py-0.5 text-xs font-medium text-ink-soft;
     }
 
     .kbd {
@@ -313,7 +316,7 @@
     }
 
     .column-drop {
-        @apply rounded-xl border-2 border-dashed border-brand-400 bg-brand-50/60;
+        @apply rounded-[3px] border-2 border-dashed border-brand-400 bg-brand-50/60;
     }
 }
 

@@ -13,7 +13,7 @@ import clsx from 'clsx';
  */
 
 export function Page({ children, className, wide = false }: { children: ReactNode; className?: string; wide?: boolean }) {
-    return <div className={clsx('mx-auto w-full px-4 py-5 sm:px-6', wide ? 'max-w-none' : 'max-w-6xl', className)}>{children}</div>;
+    return <div className={clsx('mx-auto w-full px-4 py-4 sm:px-5', wide ? 'max-w-none' : 'max-w-6xl', className)}>{children}</div>;
 }
 
 export function PageHeader({
@@ -28,7 +28,7 @@ export function PageHeader({
     back?: { href: string; label: string };
 }) {
     return (
-        <header className="mb-5 flex flex-wrap items-start justify-between gap-3">
+        <header className="mb-4 flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
                 {back ? (
                     <Link href={back.href} className="mb-1 inline-flex items-center gap-1 text-xs text-ink-muted hover:text-ink">
@@ -36,7 +36,7 @@ export function PageHeader({
                         {back.label}
                     </Link>
                 ) : null}
-                <h1 className="flex items-center gap-2 text-xl font-semibold text-ink">{title}</h1>
+                <h1 className="flex items-center gap-2 text-[20px] font-semibold tracking-tight text-ink">{title}</h1>
                 {description ? <p className="mt-0.5 text-sm text-ink-muted">{description}</p> : null}
             </div>
             {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}

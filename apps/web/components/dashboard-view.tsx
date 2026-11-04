@@ -13,7 +13,6 @@ import {
 } from 'recharts';
 import clsx from 'clsx';
 import {
-    Activity,
     AlertTriangle,
     CalendarClock,
     CheckCircle2,
@@ -22,7 +21,6 @@ import {
     ListChecks,
     ShieldAlert,
     TrendingUp,
-    Users,
 } from 'lucide-react';
 import {
     HEALTH_CLASS,
@@ -38,17 +36,15 @@ import { projectsPath, projectPath } from '~/lib/paths';
 import { useOverview, useTeams } from '~/lib/hooks';
 import type { AnalyticsQuery, MilestoneRow, ProjectHealthRow, Tally, WorkloadRow } from '~/lib/types';
 import { Avatar, Badge, EmptyState, ErrorNote, ProgressBar, Select, Skeleton } from './ui';
-import { Page } from './page-shell';
+import { Page, PageHeader } from './page-shell';
 
 /**
- * The reporting screen: is the team keeping up, and what needs attention today?
+ * Workspace reporting screen.
  *
- * One request feeds the whole page — `GET /analytics/overview` returns totals, breakdowns,
- * the throughput series, workload and project health together, because splitting them into
- * six queries would make the numbers disagree with each other while they were loading.
- *
- * Layout is a cockpit: a KPI strip up top, then a 3-column grid — the chart and the health
- * table take the wide columns, the composition breakdowns and "needs attention" sit beside them.
+ * Layout follows a 3-layer hierarchy (status → diagnosis → action):
+ *   1. KPI ribbon — 5-second health check
+ *   2. Throughput + attention — why, and what to triage
+ *   3. Portfolio tables — project health, people, milestones
  */
 
 const WINDOWS = [
@@ -61,9 +57,13 @@ export function DashboardView({ orgId, slug }: { orgId: string; slug: string }) 
     const [days, setDays] = useState<number>(30);
     const [teamId, setTeamId] = useState<string>('');
 
-    // A wider window is bucketed by week so the chart keeps fewer than ~14 bars on screen.
     const query = useMemo<AnalyticsQuery>(() => {
-        const from = new Date(Date.now() - days * 86_400_000).toISOString();
+        // Snap to UTC midnight so the server's SSR memo and the client's hydration memo agree on
+        // `from`. A raw `Date.now()` differs by seconds between the two and would give React Query
+        // two different cache keys, forcing a wasted refetch on every navigation.
+        const dayMs = 86_400_000;
+        const todayUtc = Math.floor(Date.now() / dayMs) * dayMs;
+        const from = new Date(todayUtc - days * dayMs).toISOString();
         return { from, granularity: days > 45 ? 'week' : 'day', ...(teamId ? { teamId } : {}) };
     }, [days, teamId]);
 
@@ -71,9 +71,9 @@ export function DashboardView({ orgId, slug }: { orgId: string; slug: string }) 
     const teams = useTeams(orgId);
 
     const filters = (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
             {teams.data?.length ? (
-                <Select value={teamId} onChange={(event) => setTeamId(event.target.value)} aria-label="Filter by team" className="w-auto">
+                <Select value={teamId} onChange={(event) => setTeamId(event.target.value)} aria-label="Filter by team" className="w-auto min-w-[9rem]">
                     <option value="">All teams</option>
                     {teams.data.map((team) => (
                         <option key={team.id} value={team.id}>
@@ -94,8 +94,8 @@ export function DashboardView({ orgId, slug }: { orgId: string; slug: string }) 
 
     if (overview.error) {
         return (
-            <Page wide>
-                <Toolbar description="Team performance for the selected window." filters={filters} />
+            <Page wide className="pb-10">
+                <PageHeader title="Dashboard" description="Team performance for the selected window." actions={filters} />
                 <ErrorNote error={overview.error} />
             </Page>
         );
@@ -103,16 +103,24 @@ export function DashboardView({ orgId, slug }: { orgId: string; slug: string }) 
 
     if (!overview.data) {
         return (
-            <Page wide>
-                <Toolbar description="Team performance for the selected window." filters={filters} />
-                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                    {Array.from({ length: 4 }, (_, index) => (
-                        <Skeleton key={index} className="h-[86px]" />
-                    ))}
+            <Page wide className="pb-10">
+                <PageHeader title="Dashboard" description="Loading workspace metrics…" actions={filters} />
+                <div className="card overflow-hidden">
+                    <div className="grid divide-y divide-line sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-4">
+                        {Array.from({ length: 4 }, (_, index) => (
+                            <div key={index} className="p-5">
+                                <Skeleton className="h-16" />
+                            </div>
+                        ))}
+                    </div>
+                </div>
+                <div className="mt-6 grid gap-4 xl:grid-cols-3">
+                    <Skeleton className="h-80 xl:col-span-2" />
+                    <Skeleton className="h-80" />
                 </div>
                 <div className="mt-4 grid gap-4 xl:grid-cols-3">
-                    <Skeleton className="h-72 xl:col-span-2" />
-                    <Skeleton className="h-72" />
+                    <Skeleton className="h-64 xl:col-span-2" />
+                    <Skeleton className="h-64" />
                 </div>
             </Page>
         );
@@ -120,17 +128,17 @@ export function DashboardView({ orgId, slug }: { orgId: string; slug: string }) 
 
     const { totals, throughput, workload, projects, milestones, byStatus, byPriority, window: range } = overview.data;
     const empty = totals.tasks === 0;
-    const subtitle = `${new Date(range.from).toLocaleDateString()} – ${new Date(range.to).toLocaleDateString()} · ${range.granularity === 'week' ? 'weekly' : 'daily'} buckets`;
+    const subtitle = `${new Date(range.from).toLocaleDateString()} – ${new Date(range.to).toLocaleDateString()} · ${range.granularity === 'week' ? 'Weekly' : 'Daily'} view`;
 
     return (
-        <Page wide>
-            <Toolbar description={subtitle} filters={filters} />
+        <Page wide className="pb-10">
+            <PageHeader title="Dashboard" description={subtitle} actions={filters} />
 
             {empty ? (
                 <EmptyState
                     icon={<CircleGauge className="h-8 w-8" />}
                     title="Nothing to report yet"
-                    description="Create a project and assign a few tasks — the numbers above fill in as work moves."
+                    description="Create a project and assign a few tasks — metrics fill in as work moves."
                     action={
                         <Link href={projectsPath(slug)} className="btn btn-primary btn-sm">
                             Go to projects
@@ -138,102 +146,118 @@ export function DashboardView({ orgId, slug }: { orgId: string; slug: string }) 
                     }
                 />
             ) : (
-                <div className="space-y-4">
-                    {/* KPI strip */}
-                    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                        <Stat label="Open tasks" value={totals.open} hint={`${totals.tasks} total`} tone="brand" icon={ListChecks} />
-                        <Stat label="Overdue" value={totals.overdue} hint={`${totals.dueSoon} due soon`} tone={totals.overdue > 0 ? 'danger' : 'neutral'} icon={AlertTriangle} />
-                        <Stat label="Completed" value={totals.completed} hint={`${totals.created} created`} tone="success" icon={CheckCircle2} />
-                        <Stat label="Completion rate" value={percent(totals.completionRate)} hint={`avg ${formatHours(totals.avgCompletionHours)} to finish`} icon={TrendingUp} />
-                    </div>
+                <div className="space-y-8 animate-fade-in">
+                    {/* Layer 1 — KPI ribbon */}
+                    <section aria-label="Key metrics">
+                        <div className="card overflow-hidden">
+                            <div className="grid divide-y divide-line sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-4">
+                                <Stat
+                                    label="Open tasks"
+                                    value={totals.open}
+                                    hint={`${totals.tasks} total`}
+                                    icon={ListChecks}
+                                />
+                                <Stat
+                                    label="Overdue"
+                                    value={totals.overdue}
+                                    hint={`${totals.dueSoon} due soon`}
+                                    tone={totals.overdue > 0 ? 'danger' : 'neutral'}
+                                    icon={AlertTriangle}
+                                />
+                                <Stat
+                                    label="Completed"
+                                    value={totals.completed}
+                                    hint={`${totals.created} created in window`}
+                                    tone="success"
+                                    icon={CheckCircle2}
+                                />
+                                <Stat
+                                    label="Completion rate"
+                                    value={percent(totals.completionRate)}
+                                    hint={`avg ${formatHours(totals.avgCompletionHours)} to finish`}
+                                    icon={TrendingUp}
+                                />
+                            </div>
+                        </div>
+                    </section>
 
-                    {/* Throughput + needs attention */}
-                    <div className="grid gap-4 xl:grid-cols-3">
-                        <Panel
-                            className="xl:col-span-2"
-                            title="Throughput"
-                            subtitle="Created vs completed"
-                            icon={Activity}
-                            action={<Legend />}
-                        >
-                            <ThroughputChart buckets={throughput} />
-                        </Panel>
+                    {/* Layer 2 — diagnosis */}
+                    <section className="space-y-3" aria-label="Delivery">
+                        <SectionLabel>Delivery</SectionLabel>
+                        <div className="grid gap-4 xl:grid-cols-5">
+                            <Panel className="xl:col-span-3" title="Throughput" subtitle="Created vs completed" action={<Legend />}>
+                                <ThroughputChart buckets={throughput} />
+                            </Panel>
 
-                        <Panel title="Needs attention" icon={ShieldAlert}>
-                            <Attention totals={totals} projects={projects} />
-                        </Panel>
-                    </div>
+                            <Panel className="xl:col-span-2" title="Needs attention" subtitle="Act on these first">
+                                <Attention totals={totals} projects={projects} />
+                            </Panel>
+                        </div>
 
-                    {/* Composition + workload */}
-                    <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-                        <Panel title="Tasks by status" icon={CircleGauge}>
-                            <Breakdown rows={byStatus} labelOf={(key) => STATUS_LABEL[key as keyof typeof STATUS_LABEL] ?? key} dot={(key) => STATUS_TOKEN[key as keyof typeof STATUS_TOKEN]} />
-                        </Panel>
-                        <Panel title="Tasks by priority" icon={Flag}>
-                            <Breakdown rows={byPriority} labelOf={(key) => PRIORITY_LABEL[key as keyof typeof PRIORITY_LABEL] ?? key} />
-                        </Panel>
-                        <Panel title="Workload by person" icon={Users} className="lg:col-span-2 xl:col-span-1">
-                            <WorkloadTable rows={workload} />
-                        </Panel>
-                    </div>
+                        <div className="grid gap-4 lg:grid-cols-2">
+                            <Panel title="By status">
+                                <Breakdown
+                                    rows={byStatus}
+                                    labelOf={(key) => STATUS_LABEL[key as keyof typeof STATUS_LABEL] ?? key}
+                                    dot={(key) => STATUS_TOKEN[key as keyof typeof STATUS_TOKEN]}
+                                />
+                            </Panel>
+                            <Panel title="By priority">
+                                <Breakdown rows={byPriority} labelOf={(key) => PRIORITY_LABEL[key as keyof typeof PRIORITY_LABEL] ?? key} />
+                            </Panel>
+                        </div>
+                    </section>
 
-                    {/* Project health + milestones */}
-                    <div className="grid gap-4 xl:grid-cols-3">
-                        <Panel title="Project health" icon={CircleGauge} className="xl:col-span-2">
-                            <ProjectHealthTable rows={projects} slug={slug} />
-                        </Panel>
-                        <Panel title="Milestones" icon={Flag}>
-                            <Milestones rows={milestones} />
-                        </Panel>
-                    </div>
+                    {/* Layer 3 — portfolio detail */}
+                    <section className="space-y-3" aria-label="Portfolio">
+                        <SectionLabel>Portfolio</SectionLabel>
+                        <div className="grid gap-4 xl:grid-cols-5">
+                            <Panel className="xl:col-span-3" title="Project health">
+                                <ProjectHealthTable rows={projects} slug={slug} />
+                            </Panel>
+                            <div className="grid gap-4 xl:col-span-2">
+                                <Panel title="Workload">
+                                    <WorkloadTable rows={workload} />
+                                </Panel>
+                                <Panel title="Milestones">
+                                    <Milestones rows={milestones} />
+                                </Panel>
+                            </div>
+                        </div>
+                    </section>
                 </div>
             )}
         </Page>
     );
 }
 
-/** Page title + date subtitle on the left, the filter selects on the right. */
-function Toolbar({ description, filters }: { description: string; filters: ReactNode }) {
-    return (
-        <header className="mb-5 flex flex-wrap items-end justify-between gap-3">
-            <div className="min-w-0">
-                <h1 className="text-xl font-semibold tracking-tight text-ink">Dashboard</h1>
-                <p className="mt-0.5 truncate text-sm text-ink-muted">{description}</p>
-            </div>
-            {filters}
-        </header>
-    );
+function SectionLabel({ children }: { children: ReactNode }) {
+    return <h2 className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-faint">{children}</h2>;
 }
 
-/** A titled, bordered surface. Every dashboard block shares this frame so the grid stays even. */
 function Panel({
     title,
     subtitle,
-    icon: Icon,
     action,
     className,
-    bodyClassName,
     children,
 }: {
     title: string;
     subtitle?: string;
-    icon?: ComponentType<{ className?: string }>;
     action?: ReactNode;
     className?: string;
-    bodyClassName?: string;
     children: ReactNode;
 }) {
     return (
         <section className={clsx('card flex flex-col overflow-hidden', className)}>
-            <header className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
-                <div className="flex min-w-0 items-center gap-2">
-                    {Icon ? <Icon className="h-4 w-4 shrink-0 text-ink-faint" /> : null}
-                    <h2 className="truncate text-sm font-semibold tracking-tight text-ink">{title}</h2>
-                    {subtitle ? <span className="hidden truncate text-xs text-ink-faint sm:inline">· {subtitle}</span> : null}
+            <header className="flex items-start justify-between gap-3 px-5 pb-1 pt-4">
+                <div className="min-w-0">
+                    <h3 className="text-sm font-semibold tracking-tight text-ink">{title}</h3>
+                    {subtitle ? <p className="mt-0.5 text-xs text-ink-muted">{subtitle}</p> : null}
                 </div>
-                {action ? <div className="shrink-0">{action}</div> : null}
+                {action ? <div className="shrink-0 pt-0.5">{action}</div> : null}
             </header>
-            <div className={clsx('flex-1 p-4', bodyClassName)}>{children}</div>
+            <div className="flex-1 px-5 pb-5 pt-3">{children}</div>
         </section>
     );
 }
@@ -242,10 +266,10 @@ function Legend() {
     return (
         <div className="flex items-center gap-3 text-xs text-ink-muted">
             <span className="inline-flex items-center gap-1.5">
-                <span className="h-2.5 w-2.5 rounded-sm bg-brand-400" aria-hidden /> Created
+                <span className="h-2 w-2 rounded-sm bg-brand-400" aria-hidden /> Created
             </span>
             <span className="inline-flex items-center gap-1.5">
-                <span className="h-2.5 w-2.5 rounded-sm bg-green-500" aria-hidden /> Completed
+                <span className="h-2 w-2 rounded-sm bg-green-500" aria-hidden /> Completed
             </span>
         </div>
     );
@@ -261,85 +285,105 @@ function Stat({
     label: string;
     value: number | string;
     hint?: string;
-    tone?: 'neutral' | 'brand' | 'success' | 'danger';
+    tone?: 'neutral' | 'success' | 'danger';
     icon?: ComponentType<{ className?: string }>;
 }) {
-    const accent = { neutral: 'text-ink', brand: 'text-ink', success: 'text-ink', danger: 'text-danger' }[tone];
-    const tile = {
-        neutral: 'bg-subtle text-ink-muted',
-        brand: 'bg-brand-50 text-brand-600',
-        success: 'bg-green-50 text-green-600',
-        danger: 'bg-red-50 text-red-600',
+    const valueTone = {
+        neutral: 'text-ink',
+        success: 'text-ink',
+        danger: 'text-danger',
     }[tone];
+    const iconTone = {
+        neutral: 'text-ink-faint',
+        success: 'text-green-600',
+        danger: 'text-danger',
+    }[tone];
+
     return (
-        <div className="card flex items-center gap-3 p-4">
-            {Icon ? (
-                <span className={clsx('flex h-11 w-11 shrink-0 items-center justify-center rounded-xl', tile)}>
-                    <Icon className="h-5 w-5" />
-                </span>
-            ) : null}
-            <div className="min-w-0">
-                <p className="truncate text-xs font-medium uppercase tracking-wide text-ink-faint">{label}</p>
-                <p className={clsx('mt-0.5 text-[26px] font-semibold leading-none tabular-nums tracking-tight', accent)}>{value}</p>
-                {hint ? <p className="mt-1 truncate text-xs text-ink-muted">{hint}</p> : null}
+        <div className="relative px-5 py-5">
+            <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-medium text-ink-muted">{label}</p>
+                {Icon ? <Icon className={clsx('h-3.5 w-3.5 shrink-0', iconTone)} aria-hidden /> : null}
             </div>
+            <p className={clsx('mt-2 text-3xl font-semibold leading-none tracking-tight tabular-nums', valueTone)}>{value}</p>
+            {hint ? <p className="mt-2 truncate text-xs text-ink-faint">{hint}</p> : null}
         </div>
     );
 }
 
-/** The action-first panel: what is late, what is close, and how many projects are drifting. */
 function Attention({ totals, projects }: { totals: { overdue: number; dueSoon: number; open: number }; projects: ProjectHealthRow[] }) {
     const atRisk = projects.filter((row) => row.health === 'at_risk' || row.health === 'off_track').length;
     const rows = [
-        { label: 'Overdue', value: totals.overdue, tone: 'danger' as const, icon: AlertTriangle },
-        { label: 'Due soon', value: totals.dueSoon, tone: 'warning' as const, icon: CalendarClock },
-        { label: 'Projects at risk', value: atRisk, tone: 'brand' as const, icon: ShieldAlert },
-        { label: 'Open tasks', value: totals.open, tone: 'neutral' as const, icon: ListChecks },
+        { label: 'Overdue tasks', value: totals.overdue, tone: 'danger' as const, icon: AlertTriangle, detail: 'Past due date' },
+        { label: 'Due soon', value: totals.dueSoon, tone: 'warning' as const, icon: CalendarClock, detail: 'Next few days' },
+        { label: 'Projects at risk', value: atRisk, tone: 'brand' as const, icon: ShieldAlert, detail: 'Health off track' },
+        { label: 'Open tasks', value: totals.open, tone: 'neutral' as const, icon: ListChecks, detail: 'Still in progress' },
     ];
-    const tileOf = { danger: 'bg-red-50 text-red-600', warning: 'bg-amber-50 text-amber-600', brand: 'bg-brand-50 text-brand-600', neutral: 'bg-subtle text-ink-muted' };
+    const rail = {
+        danger: 'bg-red-500',
+        warning: 'bg-amber-500',
+        brand: 'bg-brand-500',
+        neutral: 'bg-line-strong',
+    };
+    const valueTone = {
+        danger: 'text-danger',
+        warning: 'text-amber-700 dark:text-amber-500',
+        brand: 'text-ink',
+        neutral: 'text-ink',
+    };
 
     return (
-        <ul className="divide-y divide-line">
-            {rows.map(({ label, value, tone, icon: Icon }) => (
-                <li key={label} className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
-                    <span className="flex items-center gap-3 min-w-0">
-                        <span className={clsx('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', tileOf[tone])}>
-                            <Icon className="h-4 w-4" />
-                        </span>
-                        <span className="truncate text-sm text-ink-soft">{label}</span>
+        <ul className="space-y-2">
+            {rows.map(({ label, value, tone, icon: Icon, detail }) => (
+                <li
+                    key={label}
+                    className={clsx(
+                        'relative flex items-center gap-3 overflow-hidden rounded-lg border border-line bg-canvas/60 px-3 py-3',
+                        value > 0 && tone === 'danger' && 'border-red-200 bg-red-50/50 dark:border-red-200/20 dark:bg-red-50/40',
+                    )}
+                >
+                    <span className={clsx('absolute inset-y-0 left-0 w-0.5', rail[tone])} aria-hidden />
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-surface text-ink-muted shadow-sm ring-1 ring-line">
+                        <Icon className="h-4 w-4" />
                     </span>
-                    <span className={clsx('shrink-0 text-lg font-semibold tabular-nums', value > 0 && tone === 'danger' ? 'text-danger' : 'text-ink')}>{value}</span>
+                    <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium text-ink">{label}</span>
+                        <span className="block truncate text-xs text-ink-faint">{detail}</span>
+                    </span>
+                    <span className={clsx('shrink-0 text-xl font-semibold tabular-nums tracking-tight', value > 0 ? valueTone[tone] : 'text-ink-faint')}>
+                        {value}
+                    </span>
                 </li>
             ))}
         </ul>
     );
 }
 
-/**
- * Grouped bars, created against completed.
- *
- * Recharts is the only chart dependency, and it is used for this one series: the other
- * breakdowns are counts with a bar behind them, which reads better as plain markup.
- */
 function ThroughputChart({ buckets }: { buckets: { bucket: string; created: number; completed: number }[] }) {
-    // `2026-11-03` is too wide for an axis; the day part is enough to place a bar.
     const data = buckets.map((row) => ({ ...row, label: row.bucket.length > 8 ? row.bucket.slice(5) : row.bucket }));
 
     return (
-        <div className="h-64 w-full">
+        <div className="h-72 w-full">
             <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: -20 }} barGap={2}>
+                <BarChart data={data} margin={{ top: 8, right: 4, bottom: 0, left: -18 }} barGap={3} barCategoryGap="28%">
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" vertical={false} />
                     <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'var(--ink-muted)' }} tickLine={false} axisLine={{ stroke: 'var(--line)' }} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: 'var(--ink-muted)' }} tickLine={false} axisLine={false} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: 'var(--ink-muted)' }} tickLine={false} axisLine={false} width={36} />
                     <Tooltip
-                        cursor={{ fill: 'rgb(var(--brand-500) / 0.08)' }}
-                        contentStyle={{ background: 'var(--surface)', borderRadius: 12, border: '1px solid var(--line)', fontSize: 12, color: 'var(--ink)', boxShadow: 'var(--shadow-card)' }}
-                        labelStyle={{ color: 'var(--ink-muted)' }}
+                        cursor={{ fill: 'rgb(var(--brand-500) / 0.06)' }}
+                        contentStyle={{
+                            background: 'rgb(var(--surface))',
+                            borderRadius: 10,
+                            border: '1px solid rgb(var(--line))',
+                            fontSize: 12,
+                            color: 'rgb(var(--ink))',
+                            boxShadow: 'var(--shadow-card)',
+                        }}
+                        labelStyle={{ color: 'rgb(var(--ink-muted))' }}
                         labelFormatter={(value) => `Bucket ${value}`}
                     />
-                    <Bar dataKey="created" name="Created" fill="var(--brand-400)" radius={[3, 3, 0, 0]} />
-                    <Bar dataKey="completed" name="Completed" fill="var(--green-500)" radius={[3, 3, 0, 0]} />
+                    <Bar dataKey="created" name="Created" fill="rgb(var(--brand-400))" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                    <Bar dataKey="completed" name="Completed" fill="rgb(var(--green-500))" radius={[4, 4, 0, 0]} maxBarSize={28} />
                 </BarChart>
             </ResponsiveContainer>
         </div>
@@ -360,18 +404,18 @@ function Breakdown({
     if (rows.length === 0) return <p className="text-sm text-ink-muted">Nothing counted yet.</p>;
 
     return (
-        <ul className="space-y-3">
+        <ul className="space-y-3.5">
             {rows.map((row) => (
-                <li key={row.key} className="grid grid-cols-[minmax(0,6.5rem)_1fr_auto] items-center gap-3 text-sm">
+                <li key={row.key} className="grid grid-cols-[minmax(0,7rem)_1fr_auto] items-center gap-3 text-sm">
                     <span className="flex min-w-0 items-center gap-2">
                         {dot?.(row.key) ? <span className={`status-dot ${dot(row.key)}`} aria-hidden /> : null}
                         <span className="truncate text-ink-soft">{labelOf(row.key)}</span>
                     </span>
-                    <span className="h-2 rounded-full bg-subtle">
-                        <span className="block h-full rounded-full bg-brand-400" style={{ width: `${(row.count / max) * 100}%` }} />
+                    <span className="h-1.5 overflow-hidden rounded-full bg-subtle">
+                        <span className="block h-full rounded-full bg-brand-400/90" style={{ width: `${(row.count / max) * 100}%` }} />
                     </span>
-                    <span className="tabular-nums text-ink-muted">
-                        {row.count}
+                    <span className="min-w-[3.25rem] text-right tabular-nums text-ink-muted">
+                        <span className="font-medium text-ink">{row.count}</span>
                         <span className="ml-1 text-xs text-ink-faint">{total ? Math.round((row.count / total) * 100) : 0}%</span>
                     </span>
                 </li>
@@ -393,7 +437,7 @@ function WorkloadTable({ rows }: { rows: WorkloadRow[] }) {
                         <span className="block truncate text-sm font-medium text-ink">
                             {row.user.firstName} {row.user.lastName}
                         </span>
-                        <span className="mt-1.5 block h-1.5 w-full overflow-hidden rounded-full bg-subtle">
+                        <span className="mt-1.5 block h-1 w-full overflow-hidden rounded-full bg-subtle">
                             <span
                                 className={clsx('block h-full rounded-full', row.overdue > 0 ? 'bg-red-500' : 'bg-brand-400')}
                                 style={{ width: `${(row.score / max) * 100}%` }}
@@ -416,15 +460,15 @@ function ProjectHealthTable({ rows, slug }: { rows: ProjectHealthRow[]; slug: st
     return (
         <ul className="divide-y divide-line">
             {rows.map((row) => (
-                <li key={row.project.id} className="py-3 first:pt-0 last:pb-0">
+                <li key={row.project.id} className="py-3.5 first:pt-0 last:pb-0">
                     <div className="flex items-center justify-between gap-3 text-sm">
-                        <Link href={projectPath(slug, row.project.id)} className="flex min-w-0 items-center gap-2 hover:underline">
-                            <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: row.project.color }} aria-hidden />
-                            <span className="truncate font-medium text-ink">{row.project.name}</span>
+                        <Link href={projectPath(slug, row.project.id)} className="flex min-w-0 items-center gap-2.5 font-medium text-ink hover:text-brand-700">
+                            <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: row.project.color }} aria-hidden />
+                            <span className="truncate">{row.project.name}</span>
                         </Link>
                         <span className={clsx('chip shrink-0 border', HEALTH_CLASS[row.health])}>{HEALTH_LABEL[row.health]}</span>
                     </div>
-                    <div className="mt-2 flex items-center gap-3">
+                    <div className="mt-2.5 flex items-center gap-3">
                         <ProgressBar value={row.progress} tone={row.overdue > 0 ? 'warning' : 'success'} className="flex-1" />
                         <span className="shrink-0 text-xs tabular-nums text-ink-muted">
                             {row.completed}/{row.total}
@@ -438,22 +482,28 @@ function ProjectHealthTable({ rows, slug }: { rows: ProjectHealthRow[]; slug: st
 }
 
 function Milestones({ rows }: { rows: MilestoneRow[] }) {
-    if (rows.length === 0) return <p className="text-sm text-ink-muted">No milestones in this window. Mark a task as a milestone to track it here.</p>;
+    if (rows.length === 0) {
+        return <p className="text-sm text-ink-muted">No milestones in this window. Mark a task as a milestone to track it here.</p>;
+    }
 
     return (
         <ul className="divide-y divide-line">
             {rows.map((milestone) => (
-                <li key={milestone.id} className="flex items-center gap-3 py-2.5 text-sm first:pt-0 last:pb-0">
-                    <Flag className="h-4 w-4 shrink-0 text-brand-500" />
-                    <span className="min-w-0 flex-1 truncate">{milestone.title}</span>
-                    <span className="hidden text-xs text-ink-faint sm:inline">{milestone.project}</span>
+                <li key={milestone.id} className="flex items-start gap-3 py-2.5 text-sm first:pt-0 last:pb-0">
+                    <Flag className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-500" />
+                    <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium text-ink">{milestone.title}</span>
+                        <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-faint">
+                            <span className="truncate">{milestone.project}</span>
+                            <span className="inline-flex items-center gap-1 tabular-nums">
+                                <CalendarClock className="h-3 w-3" />
+                                {dueLabel(milestone.dueDate)}
+                            </span>
+                        </span>
+                    </span>
                     <Badge tone={milestone.status === 'done' ? 'success' : milestone.isOverdue ? 'danger' : 'neutral'}>
                         {milestone.isOverdue ? 'Overdue' : STATUS_LABEL[milestone.status]}
                     </Badge>
-                    <span className="w-20 shrink-0 text-right text-xs tabular-nums text-ink-muted">
-                        <CalendarClock className="mr-1 inline h-3.5 w-3.5" />
-                        {dueLabel(milestone.dueDate)}
-                    </span>
                 </li>
             ))}
         </ul>
