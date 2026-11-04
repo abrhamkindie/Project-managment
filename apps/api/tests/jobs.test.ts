@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { addMember, createProject, createTask, signUp } from './helpers.js';
+import { addMember, createProject, createTask, signUp, unique } from './helpers.js';
 import { prisma } from '../src/lib/prisma.js';
-import { sendDueReminders, startJobs } from '../src/jobs/scheduler.js';
+import { runHousekeeping, sendDueReminders, startJobs } from '../src/jobs/scheduler.js';
+import { hashSecret, randomToken } from '../src/lib/crypto.js';
 
 /**
  * The only scheduled job: a daily digest of overdue and soon-due work.
@@ -70,5 +71,73 @@ describe('due reminders', () => {
         const runner = startJobs();
         expect(typeof runner.stop).toBe('function');
         expect(() => runner.stop()).not.toThrow();
+    });
+});
+
+describe('housekeeping', () => {
+    const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000);
+    /** Hash a fresh secret the way the services do, so the seeded rows look like real ones. */
+    const hash = () => hashSecret(randomToken(32));
+
+    it('retires dead credentials, expired buckets and read notifications', async () => {
+        const owner = await signUp();
+        const board = await createProject(owner);
+        const task = await createTask(owner, board.projectId);
+        // Past both the 30-day grace on dead credentials and the notification retention window.
+        const ancient = 400;
+
+        const deadToken = await prisma.refreshToken.create({ data: { userId: owner.userId, tokenHash: hash(), expiresAt: daysAgo(ancient) } });
+        const revokedToken = await prisma.refreshToken.create({ data: { userId: owner.userId, tokenHash: hash(), expiresAt: daysAgo(ancient - 5), revokedAt: daysAgo(ancient - 10) } });
+        const consumedReset = await prisma.passwordResetToken.create({ data: { userId: owner.userId, tokenHash: hash(), expiresAt: daysAgo(ancient), usedAt: daysAgo(ancient) } });
+        const staleBucket = await prisma.rateLimitBucket.create({ data: { bucketKey: `test:${unique('bucket')}`, count: 4, expiresAt: daysAgo(1) } });
+        const deadInvite = await prisma.invitation.create({
+            data: { orgId: owner.orgId, email: `${unique('gone')}@atlas.test`, tokenHash: hash(), invitedById: owner.userId, expiresAt: daysAgo(ancient) },
+        });
+        const readNotice = await prisma.notification.create({
+            data: { userId: owner.userId, orgId: owner.orgId, type: 'task.due', title: 'Old news', body: 'x', readAt: daysAgo(ancient), createdAt: daysAgo(ancient) },
+        });
+
+        // Each of these has to survive: the guardrails are the whole point of the grace period.
+        const freshSession = await prisma.refreshToken.create({ data: { userId: owner.userId, tokenHash: hash(), expiresAt: daysAgo(2), revokedAt: daysAgo(1) } });
+        const liveReset = await prisma.passwordResetToken.create({ data: { userId: owner.userId, tokenHash: hash(), expiresAt: daysAgo(10) } });
+        const openInvite = await prisma.invitation.create({
+            data: { orgId: owner.orgId, email: `${unique('still')}@atlas.test`, tokenHash: hash(), invitedById: owner.userId, expiresAt: daysAgo(ancient), acceptedAt: daysAgo(ancient - 1) },
+        });
+        const unreadNotice = await prisma.notification.create({
+            data: { userId: owner.userId, orgId: owner.orgId, type: 'task.due', title: 'Never seen', body: 'x', createdAt: daysAgo(ancient) },
+        });
+        const history = await prisma.activity.create({ data: { orgId: owner.orgId, actorId: owner.userId, taskId: task.id, type: 'task.created', meta: '{}', createdAt: daysAgo(ancient) } });
+
+        const counts = await runHousekeeping();
+        expect(Object.keys(counts).sort()).toEqual(['invitations', 'notifications', 'rateLimitBuckets', 'refreshTokens', 'resetTokens']);
+        expect(counts.refreshTokens).toBeGreaterThanOrEqual(2);
+        expect(counts.resetTokens).toBeGreaterThanOrEqual(1);
+        expect(counts.rateLimitBuckets).toBeGreaterThanOrEqual(1);
+        expect(counts.invitations).toBeGreaterThanOrEqual(1);
+        expect(counts.notifications).toBeGreaterThanOrEqual(1);
+
+        expect(await prisma.refreshToken.findUnique({ where: { id: deadToken.id } })).toBeNull();
+        expect(await prisma.refreshToken.findUnique({ where: { id: revokedToken.id } })).toBeNull();
+        expect(await prisma.passwordResetToken.findUnique({ where: { id: consumedReset.id } })).toBeNull();
+        expect(await prisma.rateLimitBucket.findUnique({ where: { id: staleBucket.id } })).toBeNull();
+        expect(await prisma.invitation.findUnique({ where: { id: deadInvite.id } })).toBeNull();
+        expect(await prisma.notification.findUnique({ where: { id: readNotice.id } })).toBeNull();
+
+        expect(await prisma.refreshToken.findUnique({ where: { id: freshSession.id } })).not.toBeNull();
+        expect(await prisma.passwordResetToken.findUnique({ where: { id: liveReset.id } })).not.toBeNull();
+        expect(await prisma.invitation.findUnique({ where: { id: openInvite.id } })).not.toBeNull();
+        expect(await prisma.notification.findUnique({ where: { id: unreadNotice.id } })).not.toBeNull();
+        // The audit trail is history, not scratch data: nothing here is ever pruned.
+        expect(await prisma.activity.findUnique({ where: { id: history.id } })).not.toBeNull();
+    });
+
+    it('keeps a just-revoked session so reuse detection still has something to compare', async () => {
+        const owner = await signUp();
+        const revoked = await prisma.refreshToken.create({
+            data: { userId: owner.userId, tokenHash: hash(), expiresAt: daysAgo(1), revokedAt: new Date() },
+        });
+
+        await runHousekeeping();
+        expect(await prisma.refreshToken.findUnique({ where: { id: revoked.id } })).not.toBeNull();
     });
 });

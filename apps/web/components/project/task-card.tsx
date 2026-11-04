@@ -30,6 +30,9 @@ export function TaskCard({
     childCount = 0,
     expanded = false,
     onToggleExpand,
+    selectable = false,
+    checked = false,
+    onToggleSelect,
 }: {
     task: TaskCardDto;
     onOpen: (taskId: string) => void;
@@ -45,6 +48,10 @@ export function TaskCard({
     childCount?: number;
     expanded?: boolean;
     onToggleExpand?: () => void;
+    /** Bulk mode: show the checkbox and make a click toggle instead of opening the drawer. */
+    selectable?: boolean;
+    checked?: boolean;
+    onToggleSelect?: (taskId: string) => void;
 }) {
     const sortable = useSortable({ id: task.id, disabled: !draggable });
     const tone = dueTone(task.dueDate, task.status, task.isOverdue);
@@ -63,9 +70,13 @@ export function TaskCard({
         if (selected) nodeRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
     }, [selected]);
 
-    const style = draggable
+    const style = draggable && !selectable
         ? { transform: CSS.Transform.toString(sortable.transform), transition: sortable.transition }
         : undefined;
+
+    // In bulk mode the card is a checkbox, not a link: opening a drawer per card while somebody
+    // is clicking down a list of them would leave a wall of drawers stacked behind the bar.
+    const activate = () => (selectable ? onToggleSelect?.(task.id) : onOpen(task.id));
 
     const card = (
         <div
@@ -73,20 +84,41 @@ export function TaskCard({
             style={style}
             {...(draggable ? sortable.attributes : {})}
             {...(draggable ? sortable.listeners : {})}
-            onClick={() => onOpen(task.id)}
+            onClick={activate}
             onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') onOpen(task.id);
+                if (event.key === 'Enter' || event.key === ' ') activate();
             }}
             role="button"
             tabIndex={0}
             aria-current={selected ? 'true' : undefined}
-            aria-label={`Open task ${task.title}`}
+            aria-pressed={selectable ? checked : undefined}
+            aria-label={`${selectable ? (checked ? 'Deselect' : 'Select') : 'Open'} task ${task.title}`}
             className={clsx(
                 overlay ? 'board-card-ghost' : selected ? 'board-card-selected' : 'board-card',
                 draggable && sortable.isDragging && 'opacity-40',
+                selectable && 'cursor-default',
+                checked && 'ring-2 ring-brand-400',
             )}
         >
             <p className="flex items-start gap-1.5 text-sm font-medium text-ink">
+                {selectable ? (
+                    // The pointer must not reach dnd-kit's sensor, or the first click of a bulk
+                    // selection would look like the start of a drag.
+                    <span
+                        className="mt-0.5 shrink-0"
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={(event) => event.stopPropagation()}
+                    >
+                        <input
+                            type="checkbox"
+                            className="checkbox"
+                            checked={checked}
+                            onChange={() => onToggleSelect?.(task.id)}
+                            aria-label={`Select ${task.title}`}
+                            tabIndex={-1}
+                        />
+                    </span>
+                ) : null}
                 {task.status === 'done' ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-state-done" /> : null}
                 {task.isMilestone ? <Flag className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" /> : null}
                 <span className={clsx('min-w-0 flex-1', task.status === 'done' && 'text-ink-muted line-through', task.parentTaskId && !expanded && 'text-ink-soft')}>{task.title}</span>
@@ -103,6 +135,13 @@ export function TaskCard({
             ) : null}
 
             <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-xs">
+                {/* Creation-order label inside the project. Display only: it is renumbered when a
+                    task is deleted, so it is never used as a key or in a link. */}
+                {task.number !== null ? (
+                    <span className="tabular-nums text-ink-faint" title="Position in this project (display only)">
+                        #{task.number}
+                    </span>
+                ) : null}
                 <span className={clsx('inline-flex items-center gap-1', DUE_CLASS[tone])}>
                     <CalendarDays className="h-3.5 w-3.5" />
                     {dueLabel(task.dueDate)}

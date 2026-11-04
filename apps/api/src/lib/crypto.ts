@@ -12,6 +12,13 @@ export const randomToken = (bytes = 32) => crypto.randomBytes(bytes).toString('b
 /** Refresh tokens are stored hashed so a database leak cannot be replayed. */
 export const hashSecret = (value: string) => crypto.createHash('sha256').update(value).digest('hex');
 
+/**
+ * Short stable fingerprint for a value that must appear in a log or a key but never in
+ * full (client IPs, e-mail addresses). Not a security boundary — just non-reversible
+ * enough that a table of counters does not leak who requested what.
+ */
+export const fingerprint = (value: string) => crypto.createHash('sha256').update(value).digest('hex').slice(0, 16);
+
 export function slugify(input: string): string {
     return input
         .normalize('NFKD')

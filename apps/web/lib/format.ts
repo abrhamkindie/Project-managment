@@ -122,6 +122,18 @@ export function relativeTime(value?: string | null): string {
     return `${formatDistanceToNowStrict(date)} ago`;
 }
 
+/**
+ * A person's availability in one phrase.
+ *
+ * Online needs no timestamp — "now" is the whole message — so the clock only appears once the
+ * dot has gone grey, which is exactly when a reader starts wondering how long they have been out.
+ */
+export function presenceLabel(online: boolean, lastSeenAt?: string | null): string {
+    if (online) return 'Active now';
+    if (!lastSeenAt) return 'No activity yet';
+    return `Seen ${relativeTime(lastSeenAt)}`;
+}
+
 export type DueTone = 'none' | 'normal' | 'soon' | 'overdue' | 'done';
 
 /** Colour language for due dates: red only when the day has passed, amber when it is close. */

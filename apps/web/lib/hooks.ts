@@ -15,7 +15,9 @@ import {
     fetchNotifications,
     fetchOrganization,
     fetchOverview,
+    fetchPasswordResetState,
     fetchPreferences,
+    fetchPresence,
     fetchProject,
     fetchProjectOverview,
     fetchProjects,
@@ -25,6 +27,7 @@ import {
     fetchTeams,
     fetchWorkload,
     keys,
+    requestPasswordReset,
 } from './queries';
 import { useToast } from '~/components/toast';
 import { mergeTaskIntoBoard, removeTaskFromBoard } from './board-cache';
@@ -33,6 +36,8 @@ import type {
     AnalyticsQuery,
     AssignBody,
     BoardDto,
+    BulkResultDto,
+    BulkTaskBody,
     CreateProjectBody,
     CreateTaskBody,
     InviteBody,
@@ -58,6 +63,9 @@ import type {
  */
 
 const DEFAULT_STALE_TIME = 30_000;
+
+/** How often the presence roster is re-read; matches the heartbeat the socket sends. */
+const PRESENCE_POLL_MS = 60_000;
 
 /** Boards and inboxes change while a tab is open, so they are never considered fresh for long. */
 export const queryDefaults = {
@@ -274,6 +282,35 @@ export function useSetLabels() {
     });
 }
 
+/**
+ * Bulk bar: one action over up to 100 selected cards.
+ *
+ * The whole `['project']` prefix is invalidated rather than the touched ids only, because a
+ * batch can span projects and the per-card realtime events are not relied on here; a stale
+ * column would be worse than one extra refetch. Partial failures are reported, not swallowed:
+ * the cards that moved must not be hidden behind the ones that did not.
+ */
+export function useBulkTasks(orgId: string) {
+    const client = useQueryClient();
+    const toast = useToast();
+    return useMutation({
+        mutationFn: (body: BulkTaskBody) => api.post<BulkResultDto>(`/organizations/${orgId}/tasks/bulk`, body),
+        onSuccess: (result, body) => {
+            void client.invalidateQueries({ queryKey: ['project'] });
+            void client.invalidateQueries({ queryKey: keys.tasks(orgId) });
+            void client.invalidateQueries({ queryKey: keys.myTasks(orgId) });
+            void client.invalidateQueries({ queryKey: keys.activity(orgId) });
+            for (const id of result.updated) client.removeQueries({ queryKey: keys.task(id) });
+            if (result.failed.length > 0) {
+                toast.error(`${result.failed.length} of ${body.ids.length} ${result.failed.length === 1 ? 'task' : 'tasks'} could not be ${body.action === 'delete' ? 'deleted' : 'updated'}`);
+            } else {
+                toast.success(`${result.updated.length} ${result.updated.length === 1 ? 'task' : 'tasks'} ${body.action === 'delete' ? 'deleted' : 'updated'}`);
+            }
+        },
+        onError: (error) => toast.error(messageOf(error)),
+    });
+}
+
 export function useDeleteTask(orgId: string) {
     const client = useQueryClient();
     const toast = useToast();
@@ -368,6 +405,25 @@ export function useWorkload(orgId: string, query?: AnalyticsQuery) {
 
 export function useMembers(orgId: string) {
     return useQuery({ queryKey: keys.members(orgId), queryFn: () => fetchMembers(orgId) });
+}
+
+/**
+ * Who is around in this workspace right now, and when the others were last seen.
+ *
+ * Online/offline flips arrive over the socket and patch this cache directly (see
+ * `lib/realtime.tsx`), so the poll is only a safety net: it re-reads the roster after a socket
+ * outage and keeps a `seen 12 minutes ago` label honest on a page nobody reloads.
+ */
+export function usePresence(orgId: string) {
+    const query = useQuery({
+        queryKey: keys.presence(orgId),
+        queryFn: () => fetchPresence(orgId),
+        refetchInterval: PRESENCE_POLL_MS,
+    });
+    const rows = query.data ?? [];
+    const byUser = useMemo(() => new Map(rows.map((row) => [row.userId, row])), [rows]);
+    const active = useMemo(() => rows.filter((row) => row.online), [rows]);
+    return { ...query, byUser, active, activeCount: active.length };
 }
 
 /**
@@ -642,6 +698,49 @@ export function restoreSession(): Promise<Session | null> {
     return restoreInFlight;
 }
 
+/**
+ * "Forgot password", step 1.
+ *
+ * Nothing is done with the response except showing it: the API answers the same way for an
+ * unknown address, a deactivated one and a Google-only one, so the screen must not learn
+ * anything from it.
+ */
+export function useForgotPassword() {
+    return useMutation({
+        mutationFn: (email: string) => requestPasswordReset(email),
+    });
+}
+
+/**
+ * Is the link in `/reset-password?token=…` still good?
+ *
+ * `retry: false` because a dead link stays dead: retrying an expired or already-used token
+ * only spends the shared IP budget of the endpoint again.
+ */
+export function usePasswordResetState(token: string | undefined) {
+    return useQuery({
+        queryKey: ['auth', 'password-reset', token],
+        queryFn: () => fetchPasswordResetState(token ?? ''),
+        enabled: !!token,
+        retry: false,
+    });
+}
+
+/** Step 2: set the new password, then start from a clean slate at the sign-in screen. */
+export function useResetPassword() {
+    const client = useQueryClient();
+    const router = useRouter();
+    return useMutation({
+        mutationFn: (body: { token: string; password: string }) =>
+            api.post<{ ok: boolean; message: string }>('/auth/reset-password', body),
+        onSuccess: () => {
+            // The reset revoked every session, so no cached query is trustworthy any more.
+            client.clear();
+            router.replace('/login');
+        },
+    });
+}
+
 export function useAcceptInvitation() {
     const client = useQueryClient();
     const router = useRouter();
@@ -702,7 +801,7 @@ function invalidateBoard(client: QueryClient, projectId: string) {
  */
 export function applyTaskToCaches(client: QueryClient, task: TaskCardDto) {
     client.setQueryData(keys.board(task.projectId), (board: BoardDto | undefined) => (board ? mergeTaskIntoBoard(board, task) : board));
-    client.setQueryData(keys.task(task.id), (detail: TaskDetailDto | undefined) => (detail ? { ...detail, ...task } : detail));
+    client.setQueryData(keys.task(task.id), (detail: TaskDetailDto | undefined) => (detail ? { ...detail, ...task, number: task.number ?? detail.number } : detail));
     if (task.parentTaskId) {
         upsertSubtaskInParent(client, task.parentTaskId, task);
         void client.invalidateQueries({ queryKey: keys.task(task.parentTaskId) });

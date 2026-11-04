@@ -2,18 +2,20 @@
 
 import { useState } from 'react';
 import { Mail, ShieldCheck, UserPlus, Users, X } from 'lucide-react';
-import { formatDate, fullName } from '~/lib/format';
+import { formatDate, fullName, presenceLabel } from '~/lib/format';
+import clsx from 'clsx';
 import {
     useInvitations,
     useInviteMembers,
     useMembers,
     usePeople,
+    usePresence,
     useTeams,
     useWorkspaceAdmin,
 } from '~/lib/hooks';
 import { canManageMembers, isManagerPlus } from '~/lib/roles';
 import type { MemberDto, OrgRole } from '~/lib/types';
-import { Avatar, Badge, Button, EmptyState, ErrorNote, Field, Input, Modal, Select, Spinner } from './ui';
+import { Avatar, Badge, Button, EmptyState, ErrorNote, Field, Input, Modal, PresenceDot, Select, Spinner } from './ui';
 import { Page, PageHeader, Section } from './page-shell';
 import { UserPicker } from './user-picker';
 
@@ -26,6 +28,7 @@ import { UserPicker } from './user-picker';
  */
 export function MembersView({ orgId, viewerId, role, ownerId }: { orgId: string; viewerId: string; role: OrgRole; ownerId: string }) {
     const members = useMembers(orgId);
+    const presence = usePresence(orgId);
     const teams = useTeams(orgId);
     const admin = useWorkspaceAdmin(orgId);
 
@@ -43,7 +46,17 @@ export function MembersView({ orgId, viewerId, role, ownerId }: { orgId: string;
         <Page>
             <PageHeader
                 title="Members"
-                description={`${rows.length} ${rows.length === 1 ? 'person' : 'people'} in this workspace`}
+                description={
+                    <>
+                        {rows.length} {rows.length === 1 ? 'person' : 'people'} in this workspace
+                        {presence.data ? (
+                            <span className="ml-2 inline-flex items-center gap-1.5">
+                                <PresenceDot online={presence.activeCount > 0} />
+                                {presence.activeCount} {presence.activeCount === 1 ? 'is' : 'are'} active now
+                            </span>
+                        ) : null}
+                    </>
+                }
                 actions={
                     canManage ? (
                         <Button variant="primary" icon={<Mail className="h-4 w-4" />} onClick={() => setInviteOpen(true)}>
@@ -59,52 +72,62 @@ export function MembersView({ orgId, viewerId, role, ownerId }: { orgId: string;
 
             <Section title="People">
                 <ul className="card divide-y divide-line">
-                    {rows.map((member) => (
-                        <li key={member.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
-                            <Avatar user={member.user} />
-                            <span className="min-w-0 flex-1">
-                                <span className="flex items-center gap-2 text-sm font-medium text-ink">
-                                    {fullName(member.user)}
-                                    {!member.user.isActive ? <Badge tone="warning">Deactivated</Badge> : null}
-                                    {member.user.id === ownerId ? <Badge tone="brand">Owner</Badge> : null}
-                                </span>
-                                <span className="block truncate text-xs text-ink-faint">
-                                    {member.user.email} · joined {formatDate(member.joinedAt)}
-                                </span>
-                            </span>
-
-                            {member.teams.length ? (
-                                <span className="hidden items-center gap-1 md:flex">
-                                    {member.teams.map((team) => (
-                                        <span key={team.id} className="chip bg-gray-50 text-ink-muted border-line">
-                                            {team.name}
+                    {rows.map((member) => {
+                        const seen = presence.byUser.get(member.user.id);
+                        return (
+                            <li key={member.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                                <Avatar user={member.user} presence={seen ? seen.online : undefined} />
+                                <span className="min-w-0 flex-1">
+                                    <span className="flex items-center gap-2 text-sm font-medium text-ink">
+                                        {fullName(member.user)}
+                                        {!member.user.isActive ? <Badge tone="warning">Deactivated</Badge> : null}
+                                        {member.user.id === ownerId ? <Badge tone="brand">Owner</Badge> : null}
+                                    </span>
+                                    <span className="block truncate text-xs text-ink-faint">
+                                        {member.user.email} · joined {formatDate(member.joinedAt)}
+                                    </span>
+                                    {/* One line of availability per person: the green words carry the dot's meaning instead of a second dot. */}
+                                    {seen ? (
+                                        <span className={clsx('flex items-center gap-1.5 text-xs', seen.online ? 'text-state-done' : 'text-ink-faint')}>
+                                            <PresenceDot online={seen.online} />
+                                            {presenceLabel(seen.online, seen.lastSeenAt)}
                                         </span>
-                                    ))}
+                                    ) : null}
                                 </span>
-                            ) : null}
 
-                            {locked(member) ? (
-                                <span className="w-28 shrink-0 text-right text-xs capitalize text-ink-muted">{member.role}</span>
-                            ) : (
-                                <Select
-                                    value={member.role}
-                                    aria-label={`Role for ${fullName(member.user)}`}
-                                    className="w-28 shrink-0"
-                                    onChange={(event) => admin.setRole.mutate({ userId: member.user.id, role: event.target.value as OrgRole })}
-                                >
-                                    <option value="member">Member</option>
-                                    <option value="manager">Manager</option>
-                                    <option value="admin">Admin</option>
-                                </Select>
-                            )}
+                                {member.teams.length ? (
+                                    <span className="hidden items-center gap-1 md:flex">
+                                        {member.teams.map((team) => (
+                                            <span key={team.id} className="chip bg-gray-50 text-ink-muted border-line">
+                                                {team.name}
+                                            </span>
+                                        ))}
+                                    </span>
+                                ) : null}
 
-                            {canManage && member.user.id !== viewerId && member.user.id !== ownerId ? (
-                                <Button variant="ghost" size="sm" aria-label={`Remove ${fullName(member.user)}`} onClick={() => setPendingRemove(member)}>
-                                    <X className="h-4 w-4" />
-                                </Button>
-                            ) : null}
-                        </li>
-                    ))}
+                                {locked(member) ? (
+                                    <span className="w-28 shrink-0 text-right text-xs capitalize text-ink-muted">{member.role}</span>
+                                ) : (
+                                    <Select
+                                        value={member.role}
+                                        aria-label={`Role for ${fullName(member.user)}`}
+                                        className="w-28 shrink-0"
+                                        onChange={(event) => admin.setRole.mutate({ userId: member.user.id, role: event.target.value as OrgRole })}
+                                    >
+                                        <option value="member">Member</option>
+                                        <option value="manager">Manager</option>
+                                        <option value="admin">Admin</option>
+                                    </Select>
+                                )}
+
+                                {canManage && member.user.id !== viewerId && member.user.id !== ownerId ? (
+                                    <Button variant="ghost" size="sm" aria-label={`Remove ${fullName(member.user)}`} onClick={() => setPendingRemove(member)}>
+                                        <X className="h-4 w-4" />
+                                    </Button>
+                                ) : null}
+                            </li>
+                        );
+                    })}
                 </ul>
             </Section>
 
@@ -316,6 +339,7 @@ function TeamModal({
     saving: boolean;
 }) {
     const people = usePeople(orgId);
+    const presence = usePresence(orgId);
     const [name, setName] = useState(state.mode === 'create' ? '' : state.name);
     const [memberIds, setMemberIds] = useState<string[]>(state.mode === 'create' ? [] : state.memberIds);
 
@@ -336,7 +360,7 @@ function TeamModal({
                 <Field label="Team name">
                     <Input value={name} onChange={(event) => setName(event.target.value)} placeholder="Platform" maxLength={60} />
                 </Field>
-                <UserPicker users={people.people} value={memberIds} onChange={setMemberIds} label="People in this team" />
+                <UserPicker users={people.people} value={memberIds} onChange={setMemberIds} label="People in this team" presence={presence.byUser} />
             </div>
         </Modal>
     );

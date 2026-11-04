@@ -34,6 +34,9 @@ model User {
   // JSON string: { emailOnAssign, emailOnComment, emailDigest }
   prefs        String    @default("{}")
   isActive     Boolean   @default(true)
+  /// Last moment the server saw this person's realtime tab heartbeat. Presence is computed
+  /// from it (see realtime/presence.ts), so it survives a restart and is shared across replicas.
+  lastSeenAt   DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
@@ -48,6 +51,7 @@ model User {
   activities       Activity[]
   notifications    Notification[]
   refreshTokens    RefreshToken[]
+  passwordResets   PasswordResetToken[]
   sentInvitations  Invitation[]
   editedTasks      Task[]             @relation("TaskEditor")
 
@@ -68,6 +72,35 @@ model RefreshToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ----------------------------------------------------------- abuse control
+
+/// Durable counter for the credential endpoints (login, password reset). An in-memory
+/// limiter is per-process, so brute-force protection would reset on every deploy and
+/// double-count across replicas; these rows survive both. pruned by the housekeeping job.
+model RateLimitBucket {
+  id          String   @id @default(cuid())
+  bucketKey   String   @unique
+  count       Int      @default(1)
+  windowStart DateTime @default(now())
+  expiresAt   DateTime
+
+  @@index([expiresAt])
 }
 
 // --------------------------------------------------------------- organizations
@@ -116,6 +149,9 @@ model Invitation {
   expiresAt   DateTime
   acceptedAt  DateTime?
   createdAt   DateTime  @default(now())
+  // JSON-encoded id arrays so an invite can drop the acceptee straight into projects/teams.
+  teamIds     String    @default("[]")
+  projectIds  String    @default("[]")
 
   org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   invitedBy User         @relation(fields: [invitedById], references: [id], onDelete: Cascade)

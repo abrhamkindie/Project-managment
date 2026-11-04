@@ -1,10 +1,13 @@
 import { Router } from 'express';
+import type { Prisma } from '@prisma/client';
 import { asyncHandler } from '../lib/http.js';
 import { input, validate } from '../middleware/validate.js';
 import { authenticate, currentUser, requireOrgRole } from '../middleware/auth.js';
 import * as org from '../services/org.service.js';
+import { visibleProjectIds } from '../services/task.service.js';
 import {
     acceptInviteSchema,
+    activityFeedQuerySchema,
     createLabelSchema,
     createOrganizationSchema,
     createTeamSchema,
@@ -13,6 +16,7 @@ import {
     teamMembersSchema,
     updateOrganizationSchema,
     type AcceptInviteInput,
+    type ActivityFeedQuery,
     type CreateLabelInput,
     type CreateOrganizationInput,
     type CreateTeamInput,
@@ -23,6 +27,7 @@ import {
 } from '../domain/schemas.js';
 import { NotFound } from '../domain/errors.js';
 import { prisma } from '../lib/prisma.js';
+import { presenceFor } from '../realtime/presence.js';
 import { presentActivity } from '../services/presenters.js';
 
 /**
@@ -147,13 +152,58 @@ organizationRouter.delete('/:orgId/labels/:labelId', requireOrgRole('manager'), 
 
 // ----------------------------------------------------------------------- activity
 
-organizationRouter.get('/:orgId/activity', requireOrgRole('member'), asyncHandler(async (req, res) => {
-    const limit = Math.min(Number(req.query.limit ?? 50), 200);
-    const items = await prisma.activity.findMany({
-        where: { orgId: req.params.orgId },
+/**
+ * Organization-wide audit feed.
+ *
+ * Two things a naive `findMany({ orgId })` gets wrong and this does not:
+ *  - private project history is filtered out for ordinary members (org-level rows, which
+ *    have no project, stay visible); and
+ *  - `before` walks a keyset cursor instead of `skip`, so new rows appearing at the top of
+ *    the feed while someone scrolls cannot shift the page they are reading.
+ */
+organizationRouter.get('/:orgId/activity', requireOrgRole('member'), validate(activityFeedQuerySchema, 'query'), asyncHandler(async (req, res) => {
+    const user = currentUser(req);
+    const { limit, before } = input<ActivityFeedQuery>(req, 'query');
+
+    const filters: Prisma.ActivityWhereInput[] = [{ orgId: req.params.orgId }];
+    const visible = await visibleProjectIds(user, req.params.orgId);
+    if (visible !== 'all') {
+        filters.push({ OR: [{ projectId: null }, { projectId: { in: visible } }] });
+    }
+    if (before) {
+        const cursor = await prisma.activity.findFirst({ where: { id: before, orgId: req.params.orgId }, select: { createdAt: true, id: true } });
+        if (!cursor) throw new NotFound('Activity cursor not found');
+        filters.push({ OR: [{ createdAt: { lt: cursor.createdAt } }, { createdAt: cursor.createdAt, id: { lt: cursor.id } }] });
+    }
+
+    const rows = await prisma.activity.findMany({
+        where: { AND: filters },
         include: { actor: true },
-        orderBy: { createdAt: 'desc' },
-        take: limit,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: limit + 1,
     });
-    res.json({ items: items.map(presentActivity) });
+    const items = rows.slice(0, limit);
+    res.json({
+        items: items.map(presentActivity),
+        /** Pass back as `before` for the next, older page; absent once the feed is exhausted. */
+        nextCursor: rows.length > limit ? items[items.length - 1]?.id ?? null : null,
+    });
+}));
+
+/**
+ * Who is around in this workspace, and when the others were.
+ *
+ * Its own endpoint rather than a field on `/members`: the directory is a heavy read that
+ * changes rarely, presence changes every minute and is only ever wanted next to a name. Keeping
+ * them apart also means the member service does not have to know that sockets exist.
+ *
+ * Scoped strictly to this organization's roster, so it cannot be used to watch when a person
+ * from another workspace was last active.
+ */
+organizationRouter.get('/:orgId/presence', requireOrgRole('member'), asyncHandler(async (req, res) => {
+    const roster = await prisma.organizationMember.findMany({
+        where: { orgId: req.params.orgId },
+        select: { userId: true },
+    });
+    res.json({ items: await presenceFor(roster.map((row) => row.userId)) });
 }));

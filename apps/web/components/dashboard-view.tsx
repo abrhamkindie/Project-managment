@@ -216,7 +216,7 @@ export function DashboardView({ orgId, slug }: { orgId: string; slug: string }) 
                                 <ProjectHealthTable rows={projects} slug={slug} />
                             </Panel>
                             <div className="grid gap-4 xl:col-span-2">
-                                <Panel title="Workload">
+                                <Panel title="Member progress" subtitle="Done vs assigned per person">
                                     <WorkloadTable rows={workload} />
                                 </Panel>
                                 <Panel title="Milestones">
@@ -425,7 +425,6 @@ function Breakdown({
 }
 
 function WorkloadTable({ rows }: { rows: WorkloadRow[] }) {
-    const max = Math.max(1, ...rows.map((row) => row.score));
     if (rows.length === 0) return <p className="text-sm text-ink-muted">No assigned work in this window.</p>;
 
     return (
@@ -434,19 +433,27 @@ function WorkloadTable({ rows }: { rows: WorkloadRow[] }) {
                 <li key={row.user.id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
                     <Avatar user={row.user} size="sm" />
                     <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium text-ink">
-                            {row.user.firstName} {row.user.lastName}
+                        <span className="flex items-baseline justify-between gap-2">
+                            <span className="truncate text-sm font-medium text-ink">
+                                {row.user.firstName} {row.user.lastName}
+                            </span>
+                            <span className="shrink-0 text-xs font-semibold tabular-nums text-ink-soft">{percent(row.progress)}</span>
                         </span>
                         <span className="mt-1.5 block h-1 w-full overflow-hidden rounded-full bg-subtle">
                             <span
-                                className={clsx('block h-full rounded-full', row.overdue > 0 ? 'bg-red-500' : 'bg-brand-400')}
-                                style={{ width: `${(row.score / max) * 100}%` }}
+                                className={clsx('block h-full rounded-full', row.overdue > 0 ? 'bg-amber-500' : 'bg-green-500')}
+                                style={{ width: `${Math.max(row.progress, 2)}%` }}
                             />
+                        </span>
+                        <span className="mt-1 block truncate text-xs tabular-nums text-ink-faint">
+                            {row.done}/{row.assigned} done
+                            {row.completedInWindow > 0 ? <span className="text-green-600"> · {row.completedInWindow} this window</span> : null}
+                            {row.overdue > 0 ? <span className="text-danger"> · {row.overdue} late</span> : null}
                         </span>
                     </span>
                     <span className="shrink-0 text-right text-xs tabular-nums text-ink-muted">
                         <span className="block text-sm font-semibold text-ink">{row.open}</span>
-                        {row.overdue > 0 ? <span className="text-danger">{row.overdue} late</span> : <span className="text-ink-faint">{row.done} done</span>}
+                        <span className="text-ink-faint">open</span>
                     </span>
                 </li>
             ))}

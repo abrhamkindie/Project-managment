@@ -7,7 +7,7 @@ import { io, type Socket } from 'socket.io-client';
 import { useToast } from '~/components/toast';
 import { mergeTaskIntoBoard, removeTaskFromBoard } from './board-cache';
 import { keys } from './queries';
-import type { BoardDto, NotificationDto, TaskCardDto } from './types';
+import type { BoardDto, NotificationDto, PresenceDto, TaskCardDto } from './types';
 
 /**
  * Realtime layer.
@@ -34,6 +34,12 @@ export const useRealtime = () => useContext(RealtimeContext);
 /** `/realtime` on the web origin is proxied to the API; see next.config.mjs. */
 const REALTIME_PATH = '/realtime';
 
+/**
+ * How often a visible tab tells the server it is still being looked at. The API considers a
+ * person stale after 150 seconds of silence, so this tolerates two lost beats before a dot greys.
+ */
+const HEARTBEAT_MS = 60_000;
+
 export function RealtimeProvider({ orgId, children }: { orgId: string; children: ReactNode }) {
     const client = useQueryClient();
     const toast = useToast();
@@ -49,9 +55,34 @@ export function RealtimeProvider({ orgId, children }: { orgId: string; children:
             transports: ['websocket', 'polling'],
         });
 
-        socket.on('connect', () => setStatus('live'));
+        // Connecting is not enough: the server joined the rooms the roster knew at that
+        // moment, so a reconnect (and a membership change) asks it to reconcile them again.
+        const refreshRooms = () => socket.emit('rooms:sync');
+
+        // Presence: the server cannot tell a closed lid from an idle laptop, so a tab that is
+        // genuinely on screen says so. A hidden tab goes silent on purpose, which is what turns
+        // the last beat into an honest "seen 4 minutes ago".
+        const beat = () => {
+            if (document.visibilityState === 'visible') socket.emit('presence:heartbeat');
+        };
+        const onVisibility = () => beat();
+        document.addEventListener('visibilitychange', onVisibility);
+        const heartbeat = window.setInterval(beat, HEARTBEAT_MS);
+
+        socket.on('connect', () => {
+            setStatus('live');
+            refreshRooms();
+            beat();
+        });
         socket.on('disconnect', () => setStatus('offline'));
         socket.io.on('reconnect_error', () => setStatus('offline'));
+
+        socket.on('rooms:refresh', () => {
+            refreshRooms();
+            // Project lists and boards may now contain work that was invisible a second ago.
+            void client.invalidateQueries({ queryKey: ['org', orgId, 'projects'] });
+            void client.invalidateQueries({ queryKey: keys.myTasks(orgId) });
+        });
 
         // A card changed somewhere in this project: refresh the board and any open detail.
         socket.on('task:created', (task: TaskCardDto) => {
@@ -92,9 +123,27 @@ export function RealtimeProvider({ orgId, children }: { orgId: string; children:
 
         socket.on('members:changed', () => {
             void client.invalidateQueries({ queryKey: keys.members(orgId) });
+            void client.invalidateQueries({ queryKey: keys.presence(orgId) });
             void client.invalidateQueries({ queryKey: keys.teams(orgId) });
             void client.invalidateQueries({ queryKey: keys.session });
             void client.invalidateQueries({ queryKey: keys.organization(orgId) });
+        });
+
+        // A flip is patched straight into the roster cache rather than refetched: it is one row,
+        // and the payload carries exactly what the row needs.
+        socket.on('presence:updated', (payload: PresenceDto & { orgId: string }) => {
+            if (payload.orgId !== orgId) return;
+            const { userId, online, lastSeenAt }: PresenceDto = { userId: payload.userId, online: payload.online, lastSeenAt: payload.lastSeenAt };
+            client.setQueryData<PresenceDto[]>(keys.presence(orgId), (rows) => {
+                // No roster loaded on this screen yet — nothing to patch, and fetching one here
+                // would put presence on the critical path of a page that never asked for it.
+                if (!rows) return rows;
+                const index = rows.findIndex((row) => row.userId === userId);
+                if (index < 0) return [...rows, { userId, online, lastSeenAt }];
+                const next = [...rows];
+                next[index] = { userId, online, lastSeenAt };
+                return next;
+            });
         });
 
         socket.on('notification:new', (notification: NotificationDto) => {
@@ -106,6 +155,8 @@ export function RealtimeProvider({ orgId, children }: { orgId: string; children:
         });
 
         return () => {
+            window.clearInterval(heartbeat);
+            document.removeEventListener('visibilitychange', onVisibility);
             socket.removeAllListeners();
             socket.close();
         };

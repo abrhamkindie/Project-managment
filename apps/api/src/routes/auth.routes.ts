@@ -15,17 +15,23 @@ import {
     setSessionCookies,
 } from '../services/session.js';
 import { Unauthorized } from '../domain/errors.js';
+import { fingerprint } from '../lib/crypto.js';
 import {
     changePasswordSchema,
+    forgotPasswordSchema,
     loginSchema,
     registerSchema,
+    resetPasswordSchema,
+    resetTokenQuerySchema,
     updateProfileSchema,
     type ChangePasswordInput,
+    type ForgotPasswordInput,
     type LoginInput,
     type RegisterInput,
+    type ResetPasswordInput,
     type UpdateProfileInput,
 } from '../domain/schemas.js';
-import { authRateLimit } from '../middleware/rateLimit.js';
+import { authRateLimit, credentialLimit } from '../middleware/rateLimit.js';
 import type { Request } from 'express';
 
 /**
@@ -44,6 +50,14 @@ function sessionMeta(req: Request) {
     };
 }
 
+/** `ip + the account being attacked`, hashed: a durable counter that leaks no PII. */
+function accountTarget(req: Request) {
+    const email = String((req.body as { email?: unknown } | undefined)?.email ?? '').toLowerCase();
+    return `${req.ip ?? 'unknown'}:${fingerprint(email)}`;
+}
+
+const anonymousTarget = (req: Request) => req.ip ?? 'unknown';
+
 authRouter.post(
     '/register',
     authRateLimit,
@@ -58,11 +72,48 @@ authRouter.post(
 authRouter.post(
     '/login',
     authRateLimit,
+    credentialLimit({ bucket: 'login', identity: accountTarget }),
     validate(loginSchema),
     asyncHandler(async (req, res) => {
         const { userId, tokens } = await authService.login(input<LoginInput>(req), sessionMeta(req));
         setSessionCookies(res, tokens);
         res.json(await authService.profile(userId));
+    }),
+);
+
+// ------------------------------------------------------------- password recovery
+
+authRouter.post(
+    '/forgot-password',
+    authRateLimit,
+    credentialLimit({ bucket: 'pw-forgot', identity: accountTarget }),
+    validate(forgotPasswordSchema),
+    asyncHandler(async (req, res) => {
+        res.json(await authService.requestPasswordReset(input<ForgotPasswordInput>(req).email));
+    }),
+);
+
+/** Lets the reset screen validate its link (and name the address) before asking for input. */
+authRouter.get(
+    '/password-reset',
+    credentialLimit({ bucket: 'pw-state', identity: anonymousTarget, limit: 30 }),
+    validate(resetTokenQuerySchema, 'query'),
+    asyncHandler(async (req, res) => {
+        res.json(await authService.passwordResetState(input<{ token: string }>(req, 'query').token));
+    }),
+);
+
+authRouter.post(
+    '/reset-password',
+    authRateLimit,
+    credentialLimit({ bucket: 'pw-reset', identity: anonymousTarget }),
+    validate(resetPasswordSchema),
+    asyncHandler(async (req, res) => {
+        const { token, password } = input<ResetPasswordInput>(req);
+        await authService.resetPassword(token, password);
+        // A reset kills every session, so this one cannot be kept either.
+        clearSessionCookies(res);
+        res.json({ ok: true, message: 'Password changed, sign in with the new one' });
     }),
 );
 

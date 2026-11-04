@@ -26,6 +26,21 @@ const Schema = z.object({
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(30),
   BCRYPT_ROUNDS: z.coerce.number().int().min(4).max(15).default(10),
 
+  /** Lifetime of a "forgot password" link. Short, because it is a bearer credential by e-mail. */
+  PASSWORD_RESET_TTL_MINUTES: z.coerce.number().int().min(5).max(1440).default(60),
+  /**
+   * Budget for the credential endpoints, enforced durably in the database (see
+   * `middleware/rateLimit.ts`) so it survives a restart and is shared by every replica.
+   */
+  CREDENTIAL_RATE_LIMIT: z.coerce.number().int().positive().default(8),
+  CREDENTIAL_RATE_WINDOW_MS: z.coerce.number().int().positive().default(900_000),
+
+  /**
+   * How recently a realtime heartbeat must have arrived for somebody to still count as online.
+   * The web client beats once a minute, so this tolerates two lost beats before the dot greys.
+   */
+  PRESENCE_STALE_SECONDS: z.coerce.number().int().min(30).max(3600).default(150),
+
   WEB_URL: z.string().url().default('http://localhost:3000'),
   CORS_ORIGINS: z.string().default('http://localhost:3000'),
   COOKIE_SECURE: Booleanish.default(false),
@@ -44,9 +59,20 @@ const Schema = z.object({
 
   CRON_ENABLED: Booleanish.default(true),
   DUE_REMINDER_CRON: z.string().default('0 8 * * *'),
+  HOUSEKEEPING_CRON: z.string().default('30 3 * * *'),
+  /** Inbox hygiene: notifications older than this are pruned by the housekeeping job. */
+  NOTIFICATION_RETENTION_DAYS: z.coerce.number().int().min(7).max(365).default(90),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(300),
   AUTH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
+
+  /** Cards per Kanban column before the board has to page the rest in from the API. */
+  BOARD_SECTION_TASK_LIMIT: z.coerce.number().int().min(10).max(2000).default(200),
+  /** Timeline rows (activity + comments) loaded when a task drawer opens. */
+  TIMELINE_ITEM_LIMIT: z.coerce.number().int().min(20).max(1000).default(200),
+
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
 });
 
 const parsed = Schema.safeParse(process.env);
@@ -70,6 +96,14 @@ export const env = {
   },
   get isTest() {
     return parsed.data.NODE_ENV === 'test';
+  },
+  /**
+   * The schema is authored once for SQLite (dev/test) and PostgreSQL (production), but a
+   * few query features are not portable: case-insensitive `contains` only exists on
+   * PostgreSQL. Search helpers branch on this instead of failing at query time.
+   */
+  get isPostgres() {
+    return parsed.data.DATABASE_URL.startsWith('postgres://') || parsed.data.DATABASE_URL.startsWith('postgresql://');
   },
   get corsOrigins() {
     return parsed.data.CORS_ORIGINS.split(',')

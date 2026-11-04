@@ -10,14 +10,24 @@ import { mails } from '../services/mailer.js';
 /**
  * Scheduled work.
  *
- * Only the due-date digest needs a clock: everything else in Atlas is event-driven from
- * the API. `CRON_ENABLED=false` disables it on replicas that should not run jobs, which
- * is the standard way to scale an app with a single-instance cron.
+ * Two jobs run here: the due-date digest (the only one that has to be on a human clock) and
+ * housekeeping, which retires the rows that exist purely to expire. `CRON_ENABLED=false`
+ * disables both on replicas that should not run jobs, which is the standard way to scale an
+ * app with a single-instance cron.
  */
 
 export interface JobRunner {
     stop(): void;
 }
+
+/**
+ * How long a dead credential row is kept after it stops working.
+ *
+ * Deleting an expired/revoked refresh token the moment it expires would erase the evidence
+ * reuse detection needs to notice a stolen token being replayed, so the grace period keeps
+ * the row (and the alarm) alive for a month before it is pruned.
+ */
+const DEAD_CREDENTIAL_GRACE_DAYS = 30;
 
 /** One digest per user per day: overdue tasks plus anything due in the next 3 days. */
 export async function sendDueReminders(now = new Date()): Promise<{ usersNotified: number }> {
@@ -90,24 +100,70 @@ export async function sendDueReminders(now = new Date()): Promise<{ usersNotifie
     return { usersNotified };
 }
 
+/**
+ * Retire rows that can never be used again, so a long-lived deployment does not accumulate
+ * dead tokens and a full inbox does not slow every notification query down.
+ *
+ * The audit trail (`Activity`) is deliberately never touched — it is the product's history,
+ * not scratch data — and unread notifications are kept however old they are, because pruning
+ * them would silently discard something the user has not seen.
+ */
+export async function runHousekeeping(now = new Date()): Promise<Record<string, number>> {
+    const credentialCutoff = new Date(now.getTime() - DEAD_CREDENTIAL_GRACE_DAYS * 86_400_000);
+    const notificationCutoff = new Date(now.getTime() - env.NOTIFICATION_RETENTION_DAYS * 86_400_000);
+
+    const [refreshTokens, resetTokens, buckets, invitations, notifications] = await Promise.all([
+        // Expired, or revoked long enough ago that a replay would already have been caught.
+        prisma.refreshToken.deleteMany({
+            where: { OR: [{ expiresAt: { lt: credentialCutoff } }, { revokedAt: { not: null, lt: credentialCutoff } }] },
+        }),
+        prisma.passwordResetToken.deleteMany({
+            where: { OR: [{ expiresAt: { lt: credentialCutoff } }, { usedAt: { not: null, lt: credentialCutoff } }] },
+        }),
+        prisma.rateLimitBucket.deleteMany({ where: { expiresAt: { lt: now } } }),
+        prisma.invitation.deleteMany({ where: { expiresAt: { lt: credentialCutoff }, acceptedAt: null } }),
+        prisma.notification.deleteMany({ where: { readAt: { not: null }, createdAt: { lt: notificationCutoff } } }),
+    ]);
+
+    const counts = {
+        refreshTokens: refreshTokens.count,
+        resetTokens: resetTokens.count,
+        rateLimitBuckets: buckets.count,
+        invitations: invitations.count,
+        notifications: notifications.count,
+    };
+    if (Object.values(counts).some((value) => value > 0)) {
+        logger.info(counts, 'housekeeping finished');
+    }
+    return counts;
+}
+
+/** Schedule one job, tolerating a bad cron expression without taking the other one down. */
+function schedule(expression: string, name: string, run: () => Promise<unknown>): cron.ScheduledTask | null {
+    if (!cron.validate(expression)) {
+        logger.error({ expression, job: name }, `Invalid cron expression, ${name} disabled`);
+        return null;
+    }
+    logger.info({ expression, job: name }, 'Scheduled job');
+    return cron.schedule(expression, () => {
+        run().catch((error) => logger.error({ err: error, job: name }, 'Job failed'));
+    });
+}
+
 export function startJobs(): JobRunner {
     if (!env.CRON_ENABLED) {
         logger.info('Cron disabled (CRON_ENABLED=false)');
         return { stop() { } };
     }
-    if (!cron.validate(env.DUE_REMINDER_CRON)) {
-        logger.error({ expression: env.DUE_REMINDER_CRON }, 'Invalid DUE_REMINDER_CRON, due reminders disabled');
-        return { stop() { } };
-    }
 
-    const task = cron.schedule(env.DUE_REMINDER_CRON, () => {
-        sendDueReminders().catch((error) => logger.error({ err: error }, 'Due reminder job failed'));
-    });
-    logger.info({ expression: env.DUE_REMINDER_CRON }, 'Scheduled due reminders');
+    const tasks = [
+        schedule(env.DUE_REMINDER_CRON, 'due reminders', sendDueReminders),
+        schedule(env.HOUSEKEEPING_CRON, 'housekeeping', runHousekeeping),
+    ].filter((task): task is cron.ScheduledTask => task !== null);
 
     return {
         stop() {
-            task.stop();
+            for (const task of tasks) task.stop();
         },
     };
 }

@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Archive, ChevronLeft, Filter, Search, Settings2, Users } from 'lucide-react';
+import { Archive, ChevronLeft, Filter, ListChecks, Search, Settings2, Users } from 'lucide-react';
 import clsx from 'clsx';
 import { projectsPath } from '~/lib/paths';
 import { useLabels, useBoard, useProject, useSetProjectStatus } from '~/lib/hooks';
 import type { BoardDto, TaskCardDto } from '~/lib/types';
 import { AvatarStack, Button, ErrorNote, ProgressBar, Select, Skeleton, Tabs } from '../ui';
 import { Board } from './board';
+import { BulkBar } from './bulk-bar';
 import { TaskDrawer } from './drawer';
 import { TaskList } from './task-list';
 import { ProjectSettingsModal } from './settings-modal';
@@ -48,6 +49,51 @@ export function ProjectWorkspace({
     const [showFilters, setShowFilters] = useState(false);
     const [modal, setModal] = useState<'settings' | 'members' | null>(null);
     const [taskId, setTaskId] = useState<string | null>(initialTaskId);
+    const [selectMode, setSelectMode] = useState(false);
+    const [selection, setSelection] = useState<Set<string>>(() => new Set());
+
+    const toggleSelect = useCallback((id: string) => {
+        setSelection((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    }, []);
+
+    /** Column/group header control: add or remove a whole set at once. */
+    const toggleMany = useCallback((ids: string[], selected: boolean) => {
+        setSelection((prev) => {
+            const next = new Set(prev);
+            for (const id of ids) {
+                if (selected) next.add(id);
+                else next.delete(id);
+            }
+            return next;
+        });
+    }, []);
+
+    const clearSelection = useCallback(() => {
+        setSelection(new Set());
+        setSelectMode(false);
+    }, []);
+
+    // Leaving selection mode by keyboard is the normal way out once you have ticked twenty cards.
+    useEffect(() => {
+        if (!selectMode && selection.size === 0) return;
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key !== 'Escape') return;
+            // A drawer on screen owns Escape, so only clear when it is not the thing focused.
+            if (document.activeElement?.closest('[role="dialog"]')) return;
+            clearSelection();
+        };
+        document.addEventListener('keydown', onKeyDown);
+        return () => document.removeEventListener('keydown', onKeyDown);
+    }, [selectMode, selection.size, clearSelection]);
+
+    // Switching view or filtering re-keys the cards; keeping ids from a stale render would let the
+    // bar act on tasks that are no longer on screen, which is exactly what a checkbox should not do.
+    useEffect(() => setSelection(new Set()), [view]);
 
     // A project created without columns is really a list; start it there.
     useEffect(() => {
@@ -84,6 +130,10 @@ export function ProjectWorkspace({
 
     const detail = project.data;
     const canEdit = detail?.canEdit ?? false;
+    const sectionOptions = useMemo(
+        () => (detail ? detail.sections.map((section) => ({ id: section.id, name: section.name, isDone: section.isDone })) : []),
+        [detail],
+    );
 
     if (project.isError || board.isError) {
         return (
@@ -140,6 +190,24 @@ export function ProjectWorkspace({
                         {canEdit ? (
                             <Button size="sm" variant="ghost" icon={<Settings2 className="h-4 w-4" />} onClick={() => setModal('settings')}>
                                 <span className="hidden sm:inline">Settings</span>
+                            </Button>
+                        ) : null}
+                        {canEdit ? (
+                            <Button
+                                size="sm"
+                                variant={selectMode ? 'primary' : 'ghost'}
+                                icon={<ListChecks className="h-4 w-4" />}
+                                aria-pressed={selectMode}
+                                onClick={() => {
+                                    if (selectMode) {
+                                        clearSelection();
+                                    } else {
+                                        setSelectMode(true);
+                                        close();
+                                    }
+                                }}
+                            >
+                                <span className="hidden sm:inline">{selectMode ? 'Done selecting' : 'Select'}</span>
                             </Button>
                         ) : null}
                         <Button size="sm" variant="ghost" icon={<Filter className="h-4 w-4" />} onClick={() => setShowFilters((value) => !value)}>
@@ -223,14 +291,46 @@ export function ProjectWorkspace({
                 ) : null}
             </header>
 
-            <main className="min-h-0 flex-1 bg-canvas">
+            <main className="relative min-h-0 flex-1 bg-canvas">
                 {view === 'board' ? (
-                    <Board orgId={orgId} projectId={projectId} board={filtered} canEdit={canEdit} onOpen={open} selectedTaskId={taskId} />
+                    <Board
+                        orgId={orgId}
+                        projectId={projectId}
+                        board={filtered}
+                        canEdit={canEdit}
+                        onOpen={open}
+                        selectedTaskId={taskId}
+                        selectable={selectMode}
+                        selectedIds={selection}
+                        onToggleSelect={toggleSelect}
+                        onToggleMany={toggleMany}
+                    />
                 ) : (
                     <div className="mx-auto max-w-5xl px-4 py-5">
-                        <TaskList orgId={orgId} projectId={projectId} board={filtered} canEdit={canEdit} onOpen={open} selectedTaskId={taskId} />
+                        <TaskList
+                            orgId={orgId}
+                            projectId={projectId}
+                            board={filtered}
+                            canEdit={canEdit}
+                            onOpen={open}
+                            selectedTaskId={taskId}
+                            selectable={selectMode}
+                            selectedIds={selection}
+                            onToggleSelect={toggleSelect}
+                            onToggleMany={toggleMany}
+                        />
                     </div>
                 )}
+
+                {selectMode && selection.size > 0 ? (
+                    <BulkBar
+                        orgId={orgId}
+                        sections={sectionOptions}
+                        selectedIds={[...selection]}
+                        onClear={clearSelection}
+                        onResult={(failedIds) => setSelection(new Set(failedIds))}
+                    />
+                ) : null}
             </main>
 
             {taskId ? (
@@ -238,7 +338,7 @@ export function ProjectWorkspace({
                     orgId={orgId}
                     projectId={projectId}
                     taskId={taskId}
-                    sections={detail.sections.map((section) => ({ id: section.id, name: section.name, isDone: section.isDone }))}
+                    sections={sectionOptions}
                     viewerId={viewerId}
                     canEdit={canEdit}
                     onClose={close}

@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 import clsx from 'clsx';
 import { PROJECT_COLORS } from '~/lib/format';
-import { useCreateProject, usePeople } from '~/lib/hooks';
+import { useCreateProject, usePeople, usePresence } from '~/lib/hooks';
 import { projectPath } from '~/lib/paths';
 import type { ProjectVisibility } from '~/lib/types';
 import { Button, Field, Input, Modal, Select, Spinner, Textarea } from './ui';
@@ -20,6 +20,7 @@ import { UserPicker } from './user-picker';
 export function CreateProjectModal({ orgId, slug, onClose }: { orgId: string; slug: string; onClose: () => void }) {
     const router = useRouter();
     const people = usePeople(orgId);
+    const presence = usePresence(orgId);
     const create = useCreateProject(orgId);
 
     const [name, setName] = useState('');
@@ -105,6 +106,7 @@ export function CreateProjectModal({ orgId, slug, onClose }: { orgId: string; sl
                         label="Members"
                         users={people.people}
                         value={memberIds}
+                        presence={presence.byUser}
                         onChange={setMemberIds}
                         emptyHint="Invite teammates first — projects need people."
                     />

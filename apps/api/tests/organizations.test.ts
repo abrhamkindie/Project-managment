@@ -11,6 +11,7 @@ import {
     signIn,
     signUp,
     unique,
+    type Agent,
 } from './helpers.js';
 import { prisma } from '../src/lib/prisma.js';
 import { hashPassword, hashSecret } from '../src/lib/crypto.js';
@@ -300,6 +301,10 @@ describe('labels', () => {
         await owner.agent.delete(`/api/organizations/${owner.orgId}/labels/${label.body.id}`).expect(200);
         expect(await prisma.label.count({ where: { orgId: owner.orgId } })).toBe(1);
     });
+});
+
+describe('activity feed', () => {
+    type FeedRow = { id: string; type: string; meta: unknown; projectId: string | null; taskId: string | null; createdAt: string };
 
     it('feeds the organization activity stream, newest first', async () => {
         const owner = await signUp();
@@ -314,6 +319,64 @@ describe('labels', () => {
         expect(all.body.items.length).toBeGreaterThan(1);
         const timestamps = all.body.items.map((a: { createdAt: string }) => a.createdAt);
         expect([...timestamps].sort().reverse()).toEqual(timestamps);
+    });
+
+    it('hides private project history from ordinary members and pages with a cursor', async () => {
+        const owner = await signUp();
+        const teammate = await addMember(owner, 'member');
+        const open = await createProject(owner, { name: 'Open Roadmap' });
+        const secret = await createProject(owner, { name: 'Acquisition', visibility: 'private' });
+        await createTask(owner, open.projectId);
+        const hidden = await createTask(owner, secret.projectId);
+
+        const feedOf = async (agent: Agent, query: string) => {
+            const res = await agent.get(`/api/organizations/${owner.orgId}/activity${query}`).expect(200);
+            return { items: res.body.items as FeedRow[], nextCursor: res.body.nextCursor as string | null };
+        };
+
+        // A member who cannot open the private project must not read its history either.
+        const asMember = await feedOf(teammate.agent, '?limit=200');
+        expect(asMember.items.some((a) => a.taskId === hidden.id)).toBe(false);
+        expect(asMember.items.every((a) => a.projectId === null || a.projectId === open.projectId)).toBe(true);
+
+        // Org admins see everything, which is exactly why the filter cannot live in the client.
+        const asOwner = await feedOf(owner.agent, '?limit=200');
+        expect(asOwner.items.some((a) => a.taskId === hidden.id)).toBe(true);
+        expect(asOwner.items.length).toBeGreaterThan(asMember.items.length);
+
+        // Walk the keyset cursor to the end: no id twice, and the last page announces itself.
+        // Offset paging would shift rows under a feed that grows while somebody scrolls.
+        const seen: string[] = [];
+        let cursor: string | null = null;
+        for (let page = 0; page < 50; page += 1) {
+            const next = await feedOf(owner.agent, `?limit=2${cursor ? `&before=${cursor}` : ''}`);
+            seen.push(...next.items.map((item) => item.id));
+            cursor = next.nextCursor;
+            if (!cursor) break;
+        }
+        expect(cursor).toBeNull();
+        expect(seen).toHaveLength(new Set(seen).size);
+        expect(seen).toHaveLength(asOwner.items.length);
+
+        await owner.agent.get(`/api/organizations/${owner.orgId}/activity?limit=0`).expect(400);
+        await owner.agent.get(`/api/organizations/${owner.orgId}/activity?limit=500`).expect(400);
+        // A cursor that is not a row of this organization is refused, not silently ignored.
+        await owner.agent.get(`/api/organizations/${owner.orgId}/activity?before=${hidden.id}`).expect(404);
+    });
+
+    it('reads an audit row whose meta is not valid JSON instead of failing the feed', async () => {
+        const owner = await signUp();
+        const board = await createProject(owner, { name: 'Legacy Import' });
+        // Rows like this exist for real: the meta column is written by several services and a
+        // deploy that changed its shape would otherwise blank the whole history for everyone.
+        const corrupt = await prisma.activity.create({
+            data: { orgId: owner.orgId, actorId: owner.userId, projectId: board.projectId, type: 'task.created', meta: '{ truncated' },
+        });
+
+        const res = await owner.agent.get(`/api/organizations/${owner.orgId}/activity?limit=200`).expect(200);
+        const row = (res.body.items as FeedRow[]).find((item) => item.id === corrupt.id);
+        expect(row).toBeDefined();
+        expect(row?.meta).toEqual({});
     });
 });
 

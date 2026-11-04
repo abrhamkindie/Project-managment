@@ -5,6 +5,7 @@ import { authenticate, currentUser } from '../middleware/auth.js';
 import * as projects from '../services/project.service.js';
 import * as tasks from '../services/task.service.js';
 import {
+    boardQuerySchema,
     createProjectSchema,
     createSectionSchema,
     projectListQuerySchema,
@@ -12,6 +13,7 @@ import {
     reorderSectionsSchema,
     updateProjectSchema,
     updateSectionSchema,
+    type BoardQuery,
     type CreateProjectInput,
     type CreateSectionInput,
     type ProjectListQuery,
@@ -43,8 +45,13 @@ projectRouter.get('/projects/:id', asyncHandler(async (req, res) => {
     res.json(await projects.getProject(currentUser(req), req.params.id));
 }));
 
-projectRouter.get('/projects/:id/board', asyncHandler(async (req, res) => {
-    res.json(await tasks.getBoard(currentUser(req), req.params.id));
+/**
+ * Board payload is capped per column (`?limit=`), so a project with 10k cards still opens.
+ * The response carries `total`/`truncated` per section and points at the task list for the rest.
+ */
+projectRouter.get('/projects/:id/board', validate(boardQuerySchema, 'query'), asyncHandler(async (req, res) => {
+    const { limit } = input<BoardQuery>(req, 'query');
+    res.json(await tasks.getBoard(currentUser(req), req.params.id, limit));
 }));
 
 projectRouter.patch('/projects/:id', validate(updateProjectSchema), asyncHandler(async (req, res) => {

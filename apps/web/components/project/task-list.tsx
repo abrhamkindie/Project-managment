@@ -42,6 +42,10 @@ export function TaskList({
     canEdit,
     onOpen,
     selectedTaskId = null,
+    selectable = false,
+    selectedIds,
+    onToggleSelect,
+    onToggleMany,
 }: {
     orgId: string;
     projectId: string;
@@ -50,6 +54,11 @@ export function TaskList({
     onOpen: (taskId: string) => void;
     /** The task whose drawer is open, so its row can be highlighted and scrolled into view. */
     selectedTaskId?: string | null;
+    /** Bulk mode: rows get a checkbox and clicking one selects instead of opening the drawer. */
+    selectable?: boolean;
+    selectedIds?: Set<string>;
+    onToggleSelect?: (taskId: string) => void;
+    onToggleMany?: (taskIds: string[], selected: boolean) => void;
 }) {
     const groups = useMemo(() => {
         const out = board.sections.map((section) => ({
@@ -57,9 +66,11 @@ export function TaskList({
             name: section.name,
             tasks: section.tasks,
             isDone: section.isDone,
+            total: section.total,
+            truncated: section.truncated,
         }));
         if (board.unassigned.length > 0) {
-            out.push({ key: 'unassigned', name: 'No column', tasks: board.unassigned, isDone: false });
+            out.push({ key: 'unassigned', name: 'No column', tasks: board.unassigned, isDone: false, total: board.unassigned.length, truncated: false });
         }
         return out;
     }, [board]);
@@ -75,6 +86,10 @@ export function TaskList({
                     canEdit={canEdit}
                     onOpen={onOpen}
                     selectedTaskId={selectedTaskId}
+                    selectable={selectable}
+                    selectedIds={selectedIds}
+                    onToggleSelect={onToggleSelect}
+                    onToggleMany={onToggleMany}
                 />
             ))}
         </div>
@@ -110,13 +125,21 @@ function SectionGroup({
     canEdit,
     onOpen,
     selectedTaskId,
+    selectable,
+    selectedIds,
+    onToggleSelect,
+    onToggleMany,
 }: {
-    group: { key: string; name: string; tasks: TaskCardDto[]; isDone: boolean };
+    group: { key: string; name: string; tasks: TaskCardDto[]; isDone: boolean; total: number; truncated: boolean };
     orgId: string;
     projectId: string;
     canEdit: boolean;
     onOpen: (taskId: string) => void;
     selectedTaskId: string | null;
+    selectable: boolean;
+    selectedIds?: Set<string>;
+    onToggleSelect?: (taskId: string) => void;
+    onToggleMany?: (taskIds: string[], selected: boolean) => void;
 }) {
     const [collapsed, setCollapsed] = useState(false);
     const roots = useMemo(() => buildTree(group.tasks), [group.tasks]);
@@ -127,10 +150,28 @@ function SectionGroup({
     }, [containsSelected, collapsed]);
 
     const doneCount = group.tasks.filter((t) => t.status === 'done' || t.status === 'canceled').length;
+    const checkedCount = selectable ? group.tasks.filter((t) => selectedIds?.has(t.id)).length : 0;
+    const allChecked = group.tasks.length > 0 && checkedCount === group.tasks.length;
+    const progress =
+        group.tasks.length === 0
+            ? 'empty'
+            : group.isDone && doneCount === group.tasks.length
+                ? `${doneCount} done`
+                : `${doneCount}/${group.tasks.length}`;
 
     return (
         <section>
             <header className="mb-1 flex items-center gap-2 px-1">
+                {selectable ? (
+                    <input
+                        type="checkbox"
+                        className="checkbox shrink-0"
+                        checked={allChecked}
+                        disabled={group.tasks.length === 0}
+                        aria-label={allChecked ? `Deselect all in ${group.name}` : `Select all in ${group.name}`}
+                        onChange={(event) => onToggleMany?.(group.tasks.map((t) => t.id), event.target.checked)}
+                    />
+                ) : null}
                 <button
                     type="button"
                     aria-label={collapsed ? `Expand ${group.name}` : `Collapse ${group.name}`}
@@ -142,13 +183,15 @@ function SectionGroup({
                 </button>
                 <span className={clsx('status-dot', group.isDone ? 'bg-state-done' : 'bg-brand-500')} aria-hidden />
                 <h2 className="text-sm font-semibold text-ink">{group.name}</h2>
-                <span className="tabular-nums text-xs text-ink-faint">
-                    {group.tasks.length === 0
-                        ? 'empty'
-                        : group.isDone && doneCount === group.tasks.length
-                            ? `${doneCount} done`
-                            : `${doneCount}/${group.tasks.length}`}
-                </span>
+                <span className="tabular-nums text-xs text-ink-faint">{progress}</span>
+                {group.truncated ? (
+                    <span
+                        className="rounded bg-subtle px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-ink-muted"
+                        title={`Only the first ${group.tasks.length} cards here are loaded; ${Math.max(0, group.total - group.tasks.length)} more stay on the server.`}
+                    >
+                        {group.total} in column
+                    </span>
+                ) : null}
             </header>
 
             {collapsed ? null : (
@@ -166,6 +209,9 @@ function SectionGroup({
                                         canEdit={canEdit}
                                         onOpen={onOpen}
                                         selectedTaskId={selectedTaskId}
+                                        selectable={selectable}
+                                        selectedIds={selectedIds}
+                                        onToggleSelect={onToggleSelect}
                                     />
                                 ))}
                             </ul>
@@ -198,12 +244,18 @@ function TaskTreeNode({
     canEdit,
     onOpen,
     selectedTaskId,
+    selectable,
+    selectedIds,
+    onToggleSelect,
 }: {
     node: TreeNode;
     depth: number;
     canEdit: boolean;
     onOpen: (taskId: string) => void;
     selectedTaskId: string | null;
+    selectable: boolean;
+    selectedIds?: Set<string>;
+    onToggleSelect?: (taskId: string) => void;
 }) {
     const hasChildren = node.children.length > 0;
     // Auto-expand when a descendant is selected, so a deep-link to a subtask reveals its trail.
@@ -230,6 +282,9 @@ function TaskTreeNode({
                 childCount={node.children.length}
                 expanded={expanded}
                 onToggleExpand={() => setExpanded((v) => !v)}
+                selectable={selectable}
+                checked={selectedIds?.has(node.task.id) ?? false}
+                onToggleSelect={onToggleSelect}
             />
 
             {hasChildren && expanded ? (
@@ -242,6 +297,9 @@ function TaskTreeNode({
                             canEdit={canEdit}
                             onOpen={onOpen}
                             selectedTaskId={selectedTaskId}
+                            selectable={selectable}
+                            selectedIds={selectedIds}
+                            onToggleSelect={onToggleSelect}
                         />
                     ))}
                 </ul>
@@ -269,6 +327,9 @@ function TaskRow({
     childCount = 0,
     expanded = false,
     onToggleExpand,
+    selectable = false,
+    checked = false,
+    onToggleSelect,
 }: {
     task: TaskCardDto;
     canEdit: boolean;
@@ -278,6 +339,10 @@ function TaskRow({
     childCount?: number;
     expanded?: boolean;
     onToggleExpand?: () => void;
+    /** Bulk mode: the row carries a checkbox and its title toggles selection. */
+    selectable?: boolean;
+    checked?: boolean;
+    onToggleSelect?: (taskId: string) => void;
 }) {
     const update = useUpdateTask();
     const tone = dueTone(task.dueDate, task.status, task.isOverdue);
@@ -288,6 +353,8 @@ function TaskRow({
         if (selected) rowRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }, [selected]);
 
+    const activate = () => (selectable ? onToggleSelect?.(task.id) : onOpen(task.id));
+
     return (
         <div
             ref={rowRef}
@@ -295,7 +362,7 @@ function TaskRow({
             className={clsx(
                 'group flex items-center gap-2 border-l-2 py-2 pr-3 transition',
                 // Nested rows drop the priority border — the tree rail is already their accent.
-                selected ? 'border-l-brand-500 bg-brand-50' : hasChildren || task.priority !== 'none' ? clsx(PRIORITY_BORDER[task.priority], 'hover:bg-canvas') : 'border-l-transparent hover:bg-canvas',
+                selected ? 'border-l-brand-500 bg-brand-50' : checked ? 'border-l-brand-400 bg-brand-50/60' : hasChildren || task.priority !== 'none' ? clsx(PRIORITY_BORDER[task.priority], 'hover:bg-canvas') : 'border-l-transparent hover:bg-canvas',
                 'pl-1',
             )}
         >
@@ -327,7 +394,29 @@ function TaskRow({
                 ✓
             </button>
 
-            <button type="button" className="min-w-0 flex-1 text-left" onClick={() => onOpen(task.id)}>
+            {/* Checkbox slot — reserved even when not selectable, so rows line up across views. */}
+            {selectable ? (
+                <input
+                    type="checkbox"
+                    className="checkbox shrink-0"
+                    checked={checked}
+                    onChange={() => onToggleSelect?.(task.id)}
+                    aria-label={`Select ${task.title}`}
+                    tabIndex={-1}
+                />
+            ) : (
+                <span className="w-[16px] shrink-0" aria-hidden />
+            )}
+
+            {task.number !== null ? (
+                // Same display-only ordinal the board card shows, so the same task answers to the
+                // same `#N` in both views. Not a link: renumbering on delete would break old URLs.
+                <span className="hidden w-12 shrink-0 truncate text-right text-xs tabular-nums text-ink-faint sm:inline" title="Position in this project (display only)">
+                    #{task.number}
+                </span>
+            ) : null}
+
+            <button type="button" className="min-w-0 flex-1 text-left" onClick={activate}>
                 <p className={clsx('truncate', done ? 'text-ink-faint line-through' : task.parentTaskId ? 'text-ink-soft' : 'text-ink')}>
                     {task.isMilestone ? <Flag className="mr-1.5 inline h-3.5 w-3.5 text-brand-500" /> : null}
                     {task.title}

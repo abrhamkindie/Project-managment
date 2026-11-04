@@ -49,7 +49,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         setThemeState(stored);
         setResolved(next);
         apply(next);
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- run once; live updates come from setTheme below
+        // Intentionally no deps: run once; live updates come from setTheme below.
     }, []);
     const setTheme = useCallback((next: Theme) => {
         setThemeState(next);

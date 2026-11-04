@@ -128,24 +128,35 @@ export function Avatar({
     user,
     size = 'md',
     className,
+    presence,
 }: {
     user: { id: string; firstName: string; lastName: string; avatarUrl?: string | null } | null;
     size?: 'xs' | 'sm' | 'md' | 'lg';
     className?: string;
+    /** Omit for no dot; `true`/`false` paints an online/away badge on the avatar itself. */
+    presence?: boolean;
 }) {
     const dimensions = { xs: 'h-5 w-5 text-[10px]', sm: 'h-6 w-6 text-[11px]', md: 'h-8 w-8 text-xs', lg: 'h-12 w-12 text-sm' }[size];
     const name = user ? `${user.firstName} ${user.lastName}` : 'Unassigned';
-    if (!user) {
-        return (
-            <span
-                title="Unassigned"
-                className={clsx('inline-flex items-center justify-center rounded-full border border-dashed border-line bg-surface text-ink-faint', dimensions)}
-            >
-                ?
-            </span>
-        );
-    }
-    return user.avatarUrl ? (
+    const dot = presence === undefined ? null : (
+        <span
+            aria-hidden
+            className={clsx(
+                'absolute bottom-0 right-0 rounded-full ring-2 ring-surface',
+                size === 'xs' || size === 'sm' ? 'h-1.5 w-1.5' : 'h-2.5 w-2.5',
+                presence ? 'bg-state-done' : 'bg-ink-faint/60',
+            )}
+        />
+    );
+
+    const glyph = !user ? (
+        <span
+            title="Unassigned"
+            className={clsx('inline-flex items-center justify-center rounded-full border border-dashed border-line bg-surface text-ink-faint', dimensions)}
+        >
+            ?
+        </span>
+    ) : user.avatarUrl ? (
         <img src={user.avatarUrl} alt={name} title={name} className={clsx('rounded-full object-cover', dimensions, className)} />
     ) : (
         <span
@@ -154,6 +165,25 @@ export function Avatar({
         >
             {initials(user.firstName, user.lastName)}
         </span>
+    );
+
+    // The wrapper only appears when a dot is asked for, so every existing call site keeps
+    // laying out exactly as before.
+    return dot ? <span className="relative inline-flex shrink-0">{glyph}{dot}</span> : glyph;
+}
+
+/**
+ * Standalone status dot, for rows that already show the avatar somewhere else.
+ *
+ * Colour is the message and the text beside it carries the detail, so the dot itself is
+ * `aria-hidden`: a screen reader gets "Active now" from the label, not a second signal.
+ */
+export function PresenceDot({ online, className }: { online: boolean; className?: string }) {
+    return (
+        <span
+            aria-hidden
+            className={clsx('inline-block h-2 w-2 shrink-0 rounded-full', online ? 'bg-state-done' : 'bg-ink-faint/60', className)}
+        />
     );
 }
 

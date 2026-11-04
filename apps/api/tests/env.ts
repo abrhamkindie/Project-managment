@@ -28,6 +28,9 @@ export const TEST_ENV: Record<string, string> = {
     CORS_ORIGINS: 'http://localhost:3000',
     RATE_LIMIT_MAX: '1000000',
     AUTH_RATE_LIMIT_MAX: '1000000',
+    // Durable credential counters are covered by their own unit test, not by every
+    // integration spec that logs in repeatedly.
+    CREDENTIAL_RATE_LIMIT: '1000000',
 };
 
 for (const [key, value] of Object.entries(TEST_ENV)) process.env[key] = value;

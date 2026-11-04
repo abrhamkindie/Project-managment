@@ -8,7 +8,14 @@ import type { BoardDto, TaskCardDto } from './types';
  * indistinguishable in the UI.
  */
 
-/** Merge a card into the board: updates in place, moves between columns, or inserts. */
+/**
+ * Merge a card into the board: updates in place, moves between columns, or inserts.
+ *
+ * Two fields survive the merge rather than the payload, because mutation and realtime
+ * responses are a single card and cannot carry them: the ordinal (the server does not
+ * renumber on every write, so a card that has one keeps it) and the column's `total`
+ * (nudged by ±1 here, corrected on the next board fetch).
+ */
 export function mergeTaskIntoBoard(board: BoardDto, task: TaskCardDto): BoardDto {
     return {
         ...board,
@@ -18,10 +25,11 @@ export function mergeTaskIntoBoard(board: BoardDto, task: TaskCardDto): BoardDto
             // A card lives in exactly one column, so a move removes it from the old one first.
             const tasks = belongs
                 ? (present
-                    ? section.tasks.map((candidate) => (candidate.id === task.id ? { ...candidate, ...task } : candidate))
+                    ? section.tasks.map((candidate) => (candidate.id === task.id ? keep(candidate, task) : candidate))
                     : [...section.tasks, task].sort((a, b) => a.position - b.position))
                 : section.tasks.filter((candidate) => candidate.id !== task.id);
-            return { ...section, tasks };
+            const delta = belongs && !present ? 1 : !belongs && present ? -1 : 0;
+            return { ...section, tasks, total: Math.max(0, section.total + delta) };
         }),
         unassigned: task.sectionId
             ? board.unassigned.filter((candidate) => candidate.id !== task.id)
@@ -32,15 +40,24 @@ export function mergeTaskIntoBoard(board: BoardDto, task: TaskCardDto): BoardDto
 export function removeTaskFromBoard(board: BoardDto, taskId: string): BoardDto {
     return {
         ...board,
-        sections: board.sections.map((section) => ({ ...section, tasks: section.tasks.filter((task) => task.id !== taskId) })),
+        sections: board.sections.map((section) =>
+            section.tasks.some((task) => task.id === taskId)
+                ? { ...section, tasks: section.tasks.filter((task) => task.id !== taskId), total: Math.max(0, section.total - 1) }
+                : section,
+        ),
         unassigned: board.unassigned.filter((task) => task.id !== taskId),
     };
+}
+
+/** A card payload without an ordinal must not erase the one already on screen. */
+function keep(previous: TaskCardDto, next: TaskCardDto): TaskCardDto {
+    return { ...previous, ...next, number: next.number ?? previous.number };
 }
 
 function upsert(list: TaskCardDto[], task: TaskCardDto): TaskCardDto[] {
     const present = list.some((candidate) => candidate.id === task.id);
     if (!present) return [...list, task].sort((a, b) => a.position - b.position);
-    return list.map((candidate) => (candidate.id === task.id ? { ...candidate, ...task } : candidate));
+    return list.map((candidate) => (candidate.id === task.id ? keep(candidate, task) : candidate));
 }
 
 /** Neighbours around a drop position, which is all the API needs to rank a card. */

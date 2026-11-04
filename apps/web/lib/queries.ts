@@ -13,6 +13,7 @@ import type {
     NotificationPrefs,
     OrganizationDetail,
     OrganizationSummary,
+    PresenceDto,
     ProjectDetailDto,
     ProjectListQuery,
     ProjectSummary,
@@ -45,6 +46,7 @@ export const keys = {
     projectAnalytics: (projectId: string, query?: AnalyticsQuery) => ['project', projectId, 'analytics', query ?? {}] as const,
     workload: (orgId: string, query?: AnalyticsQuery) => ['org', orgId, 'workload', query ?? {}] as const,
     members: (orgId: string) => ['org', orgId, 'members'] as const,
+    presence: (orgId: string) => ['org', orgId, 'presence'] as const,
     invitations: (orgId: string) => ['org', orgId, 'invitations'] as const,
     teams: (orgId: string) => ['org', orgId, 'teams'] as const,
     labels: (orgId: string) => ['org', orgId, 'labels'] as const,
@@ -62,6 +64,17 @@ export const fetchSession = () => api.get<Session>('/auth/me');
 export const fetchOrganizations = () => list<OrganizationSummary>('/organizations');
 
 export const fetchOrganization = (orgId: string) => api.get<OrganizationDetail>(`/organizations/${orgId}`);
+
+/**
+ * Step 1 of password recovery. The answer is identical whether or not the address exists,
+ * so this returns a message to show rather than a truth to branch on.
+ */
+export const requestPasswordReset = (email: string) =>
+    api.post<{ ok: true; message: string }>('/auth/forgot-password', { email });
+
+/** Step 2 pre-flight: is the link in this URL still usable, and for which masked address? */
+export const fetchPasswordResetState = (token: string) =>
+    api.get<{ valid: boolean; email?: string }>('/auth/password-reset', { query: { token } });
 
 // ------------------------------------------------------------------------ projects
 
@@ -96,6 +109,12 @@ export const fetchWorkload = (orgId: string, query?: AnalyticsQuery) =>
 // --------------------------------------------------------------------- organization
 
 export const fetchMembers = (orgId: string) => list<MemberDto>(`/organizations/${orgId}/members`);
+
+/**
+ * Who is around. Read separately from the directory because the two change at wildly
+ * different speeds: a roster almost never, presence every minute.
+ */
+export const fetchPresence = (orgId: string) => list<PresenceDto>(`/organizations/${orgId}/presence`);
 
 export const fetchInvitations = (orgId: string) => list<InvitationDto>(`/organizations/${orgId}/invitations`);
 

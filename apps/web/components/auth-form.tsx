@@ -200,6 +200,15 @@ export function AuthForm({ mode, redirectTo }: { mode: 'login' | 'register'; red
                     />
                 </Field>
 
+                {mode === 'login' ? (
+                    // Outside the Field: a link inside a <label> would hijack the input's focus.
+                    <div className="-mt-2 flex justify-end">
+                        <Link href="/forgot-password" className="link text-xs">
+                            Forgot your password?
+                        </Link>
+                    </div>
+                ) : null}
+
                 {mode === 'register' ? (
                     <Field label="Workspace name" error={errorOf('organizationName')} hint="Optional — we will create a personal workspace for you.">
                         <Input name="organizationName" placeholder="Acme Inc." value={values.organizationName} onChange={set('organizationName')} />

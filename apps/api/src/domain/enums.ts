@@ -53,8 +53,10 @@ export const ACTIVITY_TYPES = [
     'task.reopened',
     'task.deleted',
     'task.moved',
+    'task.bulk_updated',
     'subtask.created',
     'comment.added',
+    'comment.mentioned',
     'comment.deleted',
     'attachment.added',
     'label.attached',
@@ -72,6 +74,7 @@ export const NOTIFICATION_TYPES = [
     'task.due',
     'task.status_changed',
     'comment.added',
+    'comment.mentioned',
     'member.invited',
     'project.member_added',
 ] as const;

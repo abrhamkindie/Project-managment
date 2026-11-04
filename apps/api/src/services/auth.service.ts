@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma.js';
-import { Conflict, Unauthorized } from '../domain/errors.js';
-import { hashPassword, uniqueSlug, verifyPassword } from '../lib/crypto.js';
+import { BadRequest, Conflict, Unauthorized } from '../domain/errors.js';
+import { hashPassword, hashSecret, randomToken, uniqueSlug, verifyPassword } from '../lib/crypto.js';
+import { addSeconds } from '../lib/time.js';
 import { createSession, revokeAllSessions, type SessionTokens } from './session.js';
 import { presentUser } from './presenters.js';
 import { env } from '../config/env.js';
@@ -140,4 +141,85 @@ export async function changePassword(userId: string, currentPassword: string, ne
     await prisma.user.update({ where: { id: userId }, data: { passwordHash: await hashPassword(newPassword) } });
     // Rotating the password invalidates every existing session.
     await revokeAllSessions(userId);
+}
+
+// ------------------------------------------------------------------ password reset
+
+/** Shown once a reset lands, and never varied by account state. */
+const RESET_REQUESTED = { ok: true as const, message: 'If that address has an Atlas password, a reset link is on its way' };
+
+/** `a***@domain.com` — enough for a human to recognise the address, not a full reveal. */
+function maskEmail(email: string): string {
+    const [name, domain] = email.split('@');
+    if (!domain) return email;
+    return `${name.slice(0, 1)}***@${domain}`;
+}
+
+/**
+ * Step 1 of the reset flow. Resolves identically for an unknown address, a deactivated
+ * account and a Google-only profile, so this endpoint cannot enumerate accounts; the
+ * budget that would slow a scripted enumeration lives in `credentialLimit`.
+ */
+export async function requestPasswordReset(email: string): Promise<typeof RESET_REQUESTED> {
+    const user = await prisma.user.findUnique({
+        where: { email: email.toLowerCase() },
+        select: { id: true, email: true, isActive: true, passwordHash: true },
+    });
+    if (!user?.isActive || !user.passwordHash) return RESET_REQUESTED;
+
+    const raw = randomToken(32);
+    const minutes = env.PASSWORD_RESET_TTL_MINUTES;
+
+    // One live link per account: issuing a newer one must retire whatever was emailed before.
+    await prisma.passwordResetToken.updateMany({ where: { userId: user.id, usedAt: null }, data: { usedAt: new Date() } });
+    await prisma.passwordResetToken.create({
+        data: { userId: user.id, tokenHash: hashSecret(raw), expiresAt: addSeconds(new Date(), minutes * 60) },
+    });
+
+    await sendMail(
+        mails.passwordReset({ to: user.email, link: `${env.WEB_URL}/reset-password?token=${encodeURIComponent(raw)}`, minutes }),
+    );
+    return RESET_REQUESTED;
+}
+
+/** Lets the reset screen say "this link has expired" before the user types a new password. */
+export async function passwordResetState(token: string) {
+    const stored = await prisma.passwordResetToken.findUnique({
+        where: { tokenHash: hashSecret(token) },
+        include: { user: { select: { email: true, isActive: true } } },
+    });
+    const usable = !!stored && !stored.usedAt && stored.expiresAt.getTime() > Date.now() && stored.user.isActive;
+    return { valid: usable, ...(usable ? { email: maskEmail(stored!.user.email) } : {}) };
+}
+
+/**
+ * Step 2. The token row is consumed before the password is written, so a replayed link
+ * (double submit, proxy retry) fails instead of resetting twice.
+ *
+ * Every refresh token is revoked, which is what actually locks an attacker out: the access
+ * cookie is a stateless JWT with no session row behind it, so one already issued keeps
+ * working until it expires on its own (ACCESS_TOKEN_TTL) but can never be renewed.
+ */
+export async function resetPassword(token: string, password: string): Promise<void> {
+    const invalid = new BadRequest('This reset link is invalid or has expired. Request a new one.');
+    const stored = await prisma.passwordResetToken.findUnique({
+        where: { tokenHash: hashSecret(token) },
+        include: { user: { select: { id: true, email: true, firstName: true, isActive: true } } },
+    });
+    if (!stored || stored.usedAt || stored.expiresAt.getTime() < Date.now() || !stored.user.isActive) throw invalid;
+
+    const consumed = await prisma.passwordResetToken.updateMany({
+        where: { id: stored.id, usedAt: null },
+        data: { usedAt: new Date() },
+    });
+    if (consumed.count === 0) throw invalid;
+
+    await prisma.user.update({ where: { id: stored.userId }, data: { passwordHash: await hashPassword(password) } });
+    await Promise.all([
+        revokeAllSessions(stored.userId),
+        // Retire any other outstanding link for this account.
+        prisma.passwordResetToken.updateMany({ where: { userId: stored.userId, id: { not: stored.id }, usedAt: null }, data: { usedAt: new Date() } }),
+    ]);
+
+    void sendMail(mails.passwordChanged({ to: stored.user.email, firstName: stored.user.firstName }));
 }

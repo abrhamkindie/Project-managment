@@ -76,6 +76,10 @@ export function Board({
     canEdit,
     onOpen,
     selectedTaskId = null,
+    selectable = false,
+    selectedIds,
+    onToggleSelect,
+    onToggleMany,
 }: {
     orgId: string;
     projectId: string;
@@ -84,6 +88,11 @@ export function Board({
     onOpen: (taskId: string) => void;
     /** The task whose drawer is open, so its card can be highlighted and scrolled into view. */
     selectedTaskId?: string | null;
+    /** Bulk mode — cards take checkboxes and dragging is switched off. */
+    selectable?: boolean;
+    selectedIds?: Set<string>;
+    onToggleSelect?: (taskId: string) => void;
+    onToggleMany?: (taskIds: string[], selected: boolean) => void;
 }) {
     const client = useQueryClient();
     const move = useMoveTask();
@@ -94,7 +103,9 @@ export function Board({
         useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
     );
 
-    const dragEnabled = canEdit && board.sections.length > 0;
+    // Dragging and bulk selection are mutually exclusive: a pointerdown that might become a drag is
+    // also the click that toggles a checkbox, and letting both win makes selection unreliable.
+    const dragEnabled = canEdit && board.sections.length > 0 && !selectable;
 
     const onDragStart = (event: DragStartEvent) => setActiveId(String(event.active.id));
 
@@ -148,6 +159,10 @@ export function Board({
                         canDelete={board.sections.length > 1}
                         onOpen={onOpen}
                         selectedTaskId={selectedTaskId}
+                        selectable={selectable}
+                        selectedIds={selectedIds}
+                        onToggleSelect={onToggleSelect}
+                        onToggleMany={onToggleMany}
                     />
                 ))}
 
@@ -164,6 +179,10 @@ export function Board({
                         canDelete={false}
                         onOpen={onOpen}
                         selectedTaskId={selectedTaskId}
+                        selectable={selectable}
+                        selectedIds={selectedIds}
+                        onToggleSelect={onToggleSelect}
+                        onToggleMany={onToggleMany}
                     />
                 ) : null}
 

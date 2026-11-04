@@ -45,6 +45,10 @@ export function BoardColumn({
     canDelete,
     onOpen,
     selectedTaskId = null,
+    selectable = false,
+    selectedIds,
+    onToggleSelect,
+    onToggleMany,
 }: {
     orgId: string;
     projectId: string;
@@ -61,6 +65,12 @@ export function BoardColumn({
     onOpen: (taskId: string) => void;
     /** The task whose drawer is open, so its card can be highlighted and scrolled into view. */
     selectedTaskId?: string | null;
+    /** Bulk mode: cards show a checkbox and the header gains a select-all control. */
+    selectable?: boolean;
+    selectedIds?: Set<string>;
+    onToggleSelect?: (taskId: string) => void;
+    /** Select or deselect every card currently rendered in this column. */
+    onToggleMany?: (taskIds: string[], selected: boolean) => void;
 }) {
     const sections = useSections(projectId);
     const [draft, setDraft] = useState<string | null>(null);
@@ -117,6 +127,13 @@ export function BoardColumn({
         sections.update.mutate({ sectionId: section.id, patch: { name: next } });
     };
 
+    // The column may be showing a capped slice of a much larger section, so the badge counts what
+    // is on screen against what the server says is in here — `12 of 340` is the honest label.
+    const total = section?.total ?? tasks.length;
+    const truncated = section?.truncated ?? false;
+    const checkedCount = selectable ? tasks.filter((task) => selectedIds?.has(task.id)).length : 0;
+    const allChecked = tasks.length > 0 && checkedCount === tasks.length;
+
     return (
         <section
             ref={drop.setNodeRef}
@@ -127,6 +144,18 @@ export function BoardColumn({
             )}
         >
             <header className="flex items-center gap-2 px-3 pb-1 pt-3">
+                {selectable ? (
+                    <input
+                        type="checkbox"
+                        className="checkbox shrink-0"
+                        checked={allChecked}
+                        // Some but not all: a native checkbox cannot show the mixed state, so the
+                        // first click completes the selection instead of clearing what is there.
+                        aria-label={allChecked ? `Deselect all in ${section?.name ?? 'Unassigned'}` : `Select all in ${section?.name ?? 'Unassigned'}`}
+                        onChange={(event) => onToggleMany?.(tasks.map((task) => task.id), event.target.checked)}
+                        disabled={tasks.length === 0}
+                    />
+                ) : null}
                 {draft !== null ? (
                     <form onSubmit={commit} className="min-w-0 flex-1">
                         <Input
@@ -181,7 +210,12 @@ export function BoardColumn({
                     </Menu>
                 ) : null}
 
-                <span className="text-xs text-ink-faint">{tasks.length}</span>
+                <span
+                    className="text-xs tabular-nums text-ink-faint"
+                    title={truncated ? `Only the first ${tasks.length} cards here are loaded — the other ${Math.max(0, total - tasks.length)} stay on the server. Narrow this column with the filter or use list view.` : undefined}
+                >
+                    {truncated ? `${tasks.length} of ${total}` : tasks.length}
+                </span>
             </header>
 
             <SortableContext items={visible.map((task) => task.id)} strategy={verticalListSortingStrategy}>
@@ -198,6 +232,9 @@ export function BoardColumn({
                             childCount={childrenByParent.get(task.id)?.length ?? 0}
                             expanded={expandedIds.has(task.id)}
                             onToggleExpand={() => toggle(task.id)}
+                            selectable={selectable}
+                            checked={selectedIds?.has(task.id) ?? false}
+                            onToggleSelect={onToggleSelect}
                         />
                     ))}
                     {visible.length === 0 ? (

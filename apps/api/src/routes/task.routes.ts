@@ -10,9 +10,11 @@ import { recordActivity } from '../services/activity.js';
 import { storage } from '../services/storage.js';
 import { prisma } from '../lib/prisma.js';
 import { env } from '../config/env.js';
+import { safeFilename, sniffFile } from '../lib/magic.js';
 import { BadRequest, NotFound } from '../domain/errors.js';
 import {
     assignSchema,
+    bulkTaskSchema,
     createCommentSchema,
     createTaskSchema,
     labelIdsSchema,
@@ -20,6 +22,7 @@ import {
     taskListQuerySchema,
     updateTaskSchema,
     type AssignInput,
+    type BulkTaskInput,
     type CreateCommentInput,
     type CreateTaskInput,
     type LabelIdsInput,
@@ -43,25 +46,22 @@ const upload = multer({
     limits: { fileSize: env.MAX_UPLOAD_MB * 1024 * 1024, files: 1 },
 });
 
-const ALLOWED_TYPES = new Set([
-    'image/png',
-    'image/jpeg',
-    'image/webp',
-    'image/gif',
-    'application/pdf',
-    'text/plain',
-    'text/csv',
-    'application/json',
-    'application/zip',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-]);
-
 taskRouter.get('/organizations/:orgId/tasks', validate(taskListQuerySchema, 'query'), asyncHandler(async (req, res) => {
     const query = { ...input<TaskListQuery>(req, 'query') };
     // `assigneeId=me` is the only way the client can ask for "my work" without leaking ids.
     if (query.assigneeId === 'me') query.assigneeId = currentUser(req).id;
     res.json(await tasks.listTasks(currentUser(req), req.params.orgId, query));
+}));
+
+// -------------------------------------------------------------------- bulk actions
+
+/**
+ * Checkbox bulk bar. Lives under the organization scope because that is where the
+ * permission check happens: every id still goes through the single-task service, so a
+ * batch cannot touch a project the requester cannot edit.
+ */
+taskRouter.post('/organizations/:orgId/tasks/bulk', validate(bulkTaskSchema), asyncHandler(async (req, res) => {
+    res.json(await tasks.bulkUpdate(currentUser(req), req.params.orgId, input<BulkTaskInput>(req)));
 }));
 
 taskRouter.get('/organizations/:orgId/my-tasks', asyncHandler(async (req, res) => {
@@ -127,17 +127,19 @@ taskRouter.post(
         const { task, project } = await loadTaskAccess(currentUser(req), req.params.id);
         const file = req.file;
         if (!file) throw new BadRequest('Upload a file under the `file` field');
-        if (!ALLOWED_TYPES.has(file.mimetype)) {
-            throw new BadRequest(`Unsupported file type (${file.mimetype})`);
-        }
+        // `file.mimetype` is a client-supplied label, not a fact. Trust the leading bytes so
+        // what gets stored matches the `Content-Type` the download route later replies with.
+        const sniffed = sniffFile(file.buffer, file.mimetype);
+        if (!sniffed) throw new BadRequest(`Unsupported file type (${file.mimetype})`);
 
-        const saved = await storage.save(file.buffer, { taskId: task.id, filename: file.originalname });
+        const filename = safeFilename(file.originalname, sniffed.extension);
+        const saved = await storage.save(file.buffer, { taskId: task.id, filename });
         const attachment = await prisma.attachment.create({
             data: {
                 taskId: task.id,
                 uploaderId: currentUser(req).id,
-                filename: file.originalname.slice(0, 200),
-                mimeType: file.mimetype,
+                filename,
+                mimeType: sniffed.mimeType,
                 size: saved.size,
                 storageKey: saved.storageKey,
             },
@@ -193,8 +195,12 @@ taskRouter.delete('/tasks/:id/attachments/:attachmentId', asyncHandler(async (re
     res.json({ id: attachment.id });
 }));
 
-/** Chronological activity + comment feed, for clients that refresh the drawer alone. */
+/**
+ * Chronological activity + comment feed, for clients that refresh the drawer alone.
+ * Bounded: `hiddenOlder` tells the UI how many rows it still has to ask for.
+ */
 taskRouter.get('/tasks/:id/activity', asyncHandler(async (req, res) => {
     const { task } = await loadTaskAccess(currentUser(req), req.params.id);
-    res.json({ items: await tasks.taskTimeline(task.id) });
+    const feed = await tasks.taskTimeline(task.id);
+    res.json({ items: feed.items, hiddenOlder: feed.hiddenOlder, limit: feed.limit });
 }));

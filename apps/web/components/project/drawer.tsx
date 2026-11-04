@@ -47,6 +47,7 @@ import {
     useDeleteTask,
     useLabels,
     usePeople,
+    usePresence,
     useSetAssignees,
     useSetLabels,
     useTask,
@@ -196,6 +197,11 @@ function DrawerBody({
             <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-surface px-4 text-xs">
                 <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: task.project.color }} aria-hidden />
                 <span className="truncate font-medium text-ink-soft">{task.project.name}</span>
+                {task.number !== null ? (
+                    // Display-only ordinal, the same one the card shows. Deliberately not a link:
+                    // numbers are reissued when a task is deleted, so an old one would drift.
+                    <span className="shrink-0 tabular-nums text-ink-faint" title="Position in this project (display only)">#{task.number}</span>
+                ) : null}
                 {currentSection ? (
                     <>
                         <ChevronRight className="h-3 w-3 shrink-0 text-ink-faint" />
@@ -272,7 +278,7 @@ function DrawerBody({
                 <MetaFooter task={task} />
             </div>
 
-            {confirmDelete ? <DeleteDialog task={task} onCancel={() => setConfirmDelete(false)} /> : null}
+            {confirmDelete ? <DeleteDialog task={task} orgId={orgId} onCancel={() => setConfirmDelete(false)} /> : null}
         </>
     );
 }
@@ -529,6 +535,7 @@ function InlineDate({
 function AssigneeRow({ task, orgId, canEdit }: { task: TaskDetailDto; orgId: string; canEdit: boolean }) {
     const assign = useSetAssignees();
     const people = usePeople(orgId);
+    const presence = usePresence(orgId);
     const [open, setOpen] = useState(false);
 
     return (
@@ -536,7 +543,7 @@ function AssigneeRow({ task, orgId, canEdit }: { task: TaskDetailDto; orgId: str
             <div className="flex flex-wrap items-center gap-1.5">
                 {task.assignees.map((user) => (
                     <span key={user.id} className="inline-flex items-center gap-1.5 rounded-full border border-line bg-canvas py-0.5 pl-0.5 pr-2 text-xs">
-                        <Avatar user={user} size="xs" />
+                        <Avatar user={user} size="xs" presence={presence.byUser.get(user.id)?.online} />
                         <span className="text-ink-soft">{fullName(user)}</span>
                         {user.isPrimary ? <span className="text-[10px] uppercase text-brand-600">lead</span> : null}
                         {canEdit ? (
@@ -570,6 +577,7 @@ function AssigneeRow({ task, orgId, canEdit }: { task: TaskDetailDto; orgId: str
                         users={people.people}
                         value={task.assigneeIds}
                         label="Pick who works on this"
+                        presence={presence.byUser}
                         onChange={(next) => assign.mutate({ taskId: task.id, body: { userIds: next } })}
                     />
                     <div className="mt-2 flex justify-end">
@@ -813,7 +821,7 @@ function BottomTabs({
             </div>
 
             {tab === 'subtasks' ? <SubtasksPanel task={task} orgId={orgId} projectId={projectId} canEdit={canEdit} onOpenTask={onOpenTask} /> : null}
-            {tab === 'comments' ? <Discussion task={task} viewerId={viewerId} canComment={canEdit} /> : null}
+            {tab === 'comments' ? <Discussion task={task} orgId={orgId} viewerId={viewerId} canComment={canEdit} /> : null}
             {tab === 'activities' ? <ActivitiesPanel task={task} /> : null}
         </section>
     );
@@ -1029,6 +1037,13 @@ function ActivitiesPanel({ task }: { task: TaskDetailDto }) {
                     </li>
                 );
             })}
+            {/* The timeline is capped server-side; saying so beats letting a reader conclude the
+                task has no more history than the rows shown here. */}
+            {task.olderHidden > 0 ? (
+                <li className="pt-1 text-xs text-ink-faint">
+                    {task.olderHidden} older {task.olderHidden === 1 ? 'entry' : 'entries'} hidden to keep this feed quick to load.
+                </li>
+            ) : null}
         </ul>
     );
 }
@@ -1043,8 +1058,10 @@ function MetaFooter({ task }: { task: TaskDetailDto }) {
     );
 }
 
-function DeleteDialog({ task, onCancel }: { task: TaskDetailDto; onCancel: () => void }) {
-    const remove = useDeleteTask(task.project.id);
+function DeleteDialog({ task, orgId, onCancel }: { task: TaskDetailDto; orgId: string; onCancel: () => void }) {
+    // The hook wants the organization, not the project — its only use is invalidating the org-scoped
+    // "My tasks" cache, which a project id would silently miss and leave the deleted card on screen.
+    const remove = useDeleteTask(orgId);
     return (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4" role="dialog" aria-modal="true" aria-label="Delete task">
             <div className="card w-full max-w-sm space-y-3 p-4">

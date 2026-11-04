@@ -1,11 +1,12 @@
 import type { Prisma } from '@prisma/client';
 import { env } from '../config/env.js';
 import { prisma } from '../lib/prisma.js';
-import { BadRequest, Conflict, Forbidden, NotFound } from '../domain/errors.js';
-import { DONE_STATUSES, OPEN_STATUSES, isDoneStatus, priorityWeight, type TaskStatus } from '../domain/enums.js';
+import { AppError, BadRequest, Conflict, Forbidden, NotFound } from '../domain/errors.js';
+import { DONE_STATUSES, OPEN_STATUSES, isDoneStatus, priorityWeight, type TaskPriority, type TaskStatus } from '../domain/enums.js';
 import { can } from '../domain/permissions.js';
 import { rankBetween } from '../lib/crypto.js';
 import { paginate } from '../lib/http.js';
+import { contains } from '../lib/search.js';
 import { daysAgoStart } from '../lib/time.js';
 import type { AuthUser } from '../types/express.js';
 import { assertAssignable, loadProjectAccess, loadTaskAccess, taskWatchers } from './access.js';
@@ -72,10 +73,8 @@ function buildWhere(query: TaskListQuery, projectIds: string[] | 'all', orgId: s
     }
     if (!query.includeSubtasks) where.parentTaskId = null;
     if (query.search) {
-        where.OR = [
-            { title: { contains: query.search } },
-            { description: { contains: query.search } },
-        ];
+        const term = contains(query.search);
+        where.OR = [{ title: term }, { description: term }];
     }
     return where;
 }
@@ -119,7 +118,8 @@ export async function listTasks(user: AuthUser, orgId: string, query: TaskListQu
         prisma.task.count({ where }),
     ]);
 
-    const items = rows.map((row) => presentTask(row));
+    const numbers = await taskNumbers([...new Set(rows.map((row) => row.projectId))]);
+    const items = rows.map((row) => presentTask(row, new Date(), numbers.get(row.id) ?? null));
     if (usePrioritySort) {
         const factor = direction === 'desc' ? -1 : 1;
         // NB: weights are applied to the current page; a fully correct global priority sort
@@ -129,55 +129,105 @@ export async function listTasks(user: AuthUser, orgId: string, query: TaskListQu
     return paginate(items, total, query.page, query.pageSize);
 }
 
-/** Board view: sections with their cards, in one query. */
-export async function getBoard(user: AuthUser, projectId: string) {
-    const { project } = await loadProjectAccess(user, projectId);
-    const [sections, tasks] = await Promise.all([
-        prisma.section.findMany({ where: { projectId }, orderBy: { position: 'asc' } }),
-        prisma.task.findMany({
-            where: { projectId, deletedAt: null },
-            include: taskSelectIncludes,
-            orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
-        }),
-    ]);
-    const bySection = new Map<string, ReturnType<typeof presentTask>[]>();
-    const orphans: ReturnType<typeof presentTask>[] = [];
-    for (const task of tasks.map((t) => presentTask(t))) {
-        if (!task.sectionId) orphans.push(task);
-        else bySection.set(task.sectionId, [...(bySection.get(task.sectionId) ?? []), task]);
+/**
+ * Ordinals inside a project (`#42`), keyed by task id.
+ *
+ * A real identifier column would mean a migration plus a counter per project; this is the
+ * cheap version of the same UX: one id-only read over the projects already on screen,
+ * ordered by creation. It is a label, not a key — deleting a task renumbers the tail — so
+ * nothing may depend on it staying stable, and URLs keep using ids.
+ */
+async function taskNumbers(projectIds: string[]): Promise<Map<string, number>> {
+    if (projectIds.length === 0) return new Map();
+    const rows = await prisma.task.findMany({
+        where: { projectId: { in: projectIds }, deletedAt: null },
+        select: { id: true, projectId: true },
+        orderBy: [{ projectId: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+    });
+    const seen = new Map<string, number>();
+    const out = new Map<string, number>();
+    for (const row of rows) {
+        const next = (seen.get(row.projectId) ?? 0) + 1;
+        seen.set(row.projectId, next);
+        out.set(row.id, next);
     }
+    return out;
+}
+
+/** Board view: sections with their cards, in one query. */
+export async function getBoard(user: AuthUser, projectId: string, limit = env.BOARD_SECTION_TASK_LIMIT) {
+    const { project } = await loadProjectAccess(user, projectId);
+    const sections = await prisma.section.findMany({ where: { projectId }, orderBy: { position: 'asc' } });
+
+    const boardOrder = [{ position: 'asc' as const }, { createdAt: 'asc' as const }];
+    // Each column is read separately with its own cap instead of loading every card a
+    // project has ever had: one column of a 10k-task project stays one indexed query for
+    // `limit + 1` rows. The extra row is the "there is more" signal, never displayed.
+    const [columns, unassignedRows, totals] = await Promise.all([
+        Promise.all(
+            sections.map((section) =>
+                prisma.task.findMany({
+                    where: { projectId, sectionId: section.id, deletedAt: null },
+                    include: taskSelectIncludes,
+                    orderBy: boardOrder,
+                    take: limit + 1,
+                }),
+            ),
+        ),
+        prisma.task.findMany({ where: { projectId, sectionId: null, deletedAt: null }, include: taskSelectIncludes, orderBy: boardOrder, take: limit + 1 }),
+        prisma.task.groupBy({ by: ['sectionId'], where: { projectId, deletedAt: null }, _count: { _all: true } }),
+    ]);
+    const totalBySection = new Map(totals.map((row) => [row.sectionId, row._count._all]));
+    const numbers = await taskNumbers([project.id]);
+    const present = (row: (typeof unassignedRows)[number]) => presentTask(row, new Date(), numbers.get(row.id) ?? null);
+
     return {
         project: { id: project.id, name: project.name, color: project.color, visibility: project.visibility, status: project.status },
-        sections: sections.map((section) => ({
-            id: section.id,
-            name: section.name,
-            position: section.position,
-            isDone: section.isDone,
-            tasks: bySection.get(section.id) ?? [],
-        })),
-        unassigned: orphans,
+        /** Cards kept per column; ask `/organizations/:orgId/tasks?sectionId=` for the rest. */
+        limit,
+        sections: sections.map((section, index) => {
+            const rows = columns[index];
+            return {
+                id: section.id,
+                name: section.name,
+                position: section.position,
+                isDone: section.isDone,
+                total: totalBySection.get(section.id) ?? rows.length,
+                truncated: rows.length > limit,
+                tasks: rows.slice(0, limit).map(present),
+            };
+        }),
+        unassigned: unassignedRows.slice(0, limit).map(present),
     };
 }
 
 /**
  * Chronological feed for the task drawer: activity rows and comments interleaved,
  * oldest first (the UI pins the composer to the bottom).
+ *
+ * Bounded on purpose — an old task can carry thousands of rows, and a drawer that loaded
+ * all of them would be a memory leak with a scroll bar. The newest `limit` of each stream
+ * is returned along with how much older history exists, so the UI can say "show more".
  */
-export async function taskTimeline(taskId: string) {
-    const [activities, commentRows] = await Promise.all([
-        prisma.activity.findMany({ where: { taskId }, include: { actor: true }, orderBy: { createdAt: 'asc' }, take: 200 }),
-        prisma.comment.findMany({ where: { taskId, deletedAt: null }, include: { author: true }, orderBy: { createdAt: 'asc' } }),
+export async function taskTimeline(taskId: string, limit = env.TIMELINE_ITEM_LIMIT) {
+    const [activities, commentRows, activityTotal, commentTotal] = await Promise.all([
+        prisma.activity.findMany({ where: { taskId }, include: { actor: true }, orderBy: { createdAt: 'desc' }, take: limit }),
+        prisma.comment.findMany({ where: { taskId, deletedAt: null }, include: { author: true }, orderBy: { createdAt: 'desc' }, take: limit }),
+        prisma.activity.count({ where: { taskId } }),
+        prisma.comment.count({ where: { taskId, deletedAt: null } }),
     ]);
-    return [
-        ...activities.map((a) => ({ kind: 'activity' as const, ...presentActivity(a) })),
-        ...commentRows.map((c) => ({ kind: 'comment' as const, type: 'comment.added', ...presentComment(c) })),
+    // Fetched newest-first for the cap, handed back oldest-first for the feed.
+    const items = [
+        ...activities.reverse().map((a) => ({ kind: 'activity' as const, ...presentActivity(a) })),
+        ...commentRows.reverse().map((c) => ({ kind: 'comment' as const, type: 'comment.added', ...presentComment(c) })),
     ].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return { items, hiddenOlder: Math.max(0, activityTotal - limit) + Math.max(0, commentTotal - limit), limit };
 }
 
 export async function getTask(user: AuthUser, taskId: string) {
     const { project } = await loadTaskAccess(user, taskId);
     const task = await prisma.task.findUniqueOrThrow({ where: { id: taskId }, include: taskSelectIncludes });
-    const [timeline, subtasks, parent] = await Promise.all([
+    const [feed, subtasks, parent, numbers] = await Promise.all([
         taskTimeline(taskId),
         prisma.task.findMany({
             where: { parentTaskId: taskId, deletedAt: null },
@@ -187,11 +237,13 @@ export async function getTask(user: AuthUser, taskId: string) {
         task.parentTaskId
             ? prisma.task.findUnique({ where: { id: task.parentTaskId }, include: taskSelectIncludes })
             : null,
+        taskNumbers([task.projectId]),
     ]);
+    const ordinal = (row: { id: string }) => numbers.get(row.id) ?? null;
     // A task detail is a task card plus its context, so mutation responses (which return
     // the card) merge cleanly into it on the client.
     return {
-        ...presentTask(task),
+        ...presentTask(task, new Date(), ordinal(task)),
         project: {
             id: project.id,
             orgId: project.orgId,
@@ -199,9 +251,11 @@ export async function getTask(user: AuthUser, taskId: string) {
             color: project.color,
             visibility: project.visibility,
         },
-        subtasks: subtasks.map((t) => presentTask(t)),
-        parent: parent ? presentTask(parent) : null,
-        timeline,
+        subtasks: subtasks.map((t) => presentTask(t, new Date(), ordinal(t))),
+        parent: parent ? presentTask(parent, new Date(), ordinal(parent)) : null,
+        timeline: feed.items,
+        /** Rows older than the cap that were left out of `timeline`. */
+        olderHidden: feed.hiddenOlder,
     };
 }
 
@@ -568,6 +622,94 @@ export async function deleteTask(user: AuthUser, taskId: string) {
 /** Bulk completion from the board/list ("mark done" quick action). */
 export async function completeTask(user: AuthUser, taskId: string) {
     return updateTask(user, taskId, { status: 'done' });
+}
+
+// -------------------------------------------------------------------- bulk actions
+
+export interface BulkInput {
+    ids: string[];
+    action: 'status' | 'priority' | 'delete' | 'move' | 'assign';
+    status?: TaskStatus;
+    priority?: TaskPriority;
+    sectionId?: string;
+    inheritSectionStatus?: boolean;
+    assigneeIds?: string[];
+    assignMode?: 'add' | 'replace' | 'remove';
+}
+
+export interface BulkResult {
+    updated: string[];
+    failed: { id: string; reason: string }[];
+}
+
+/**
+ * Apply one action to many tasks in a single round trip.
+ *
+ * This deliberately loops the single-task services instead of one bulk `updateMany`:
+ * every card then goes through the same permission check, activity row, notification and
+ * realtime event as if it had been edited one at a time — the alternative is a fast path
+ * whose audit trail quietly differs from the slow one. Partial success is reported
+ * per id rather than rolled back, which is what a checkbox bulk bar needs: one card the
+ * user cannot edit must not discard the ninety they can.
+ */
+export async function bulkUpdate(user: AuthUser, orgId: string, input: BulkInput): Promise<BulkResult> {
+    const updated: string[] = [];
+    const failed: { id: string; reason: string }[] = [];
+
+    // The caller names the organization, so the organization has to be real for them: this both
+    // rejects a stranger and stops an audit row from being filed under an org the actor left.
+    await visibleProjectIds(user, orgId);
+
+    // A batch is scoped to this organization. Without the check, somebody in two workspaces could
+    // edit workspace B tasks while claiming workspace A, and the history row would land in A.
+    const wanted = [...new Set(input.ids)];
+    const scoped = await prisma.task.findMany({
+        where: { id: { in: wanted } },
+        select: { id: true, project: { select: { orgId: true } } },
+    });
+    const inThisOrg = new Set(scoped.filter((row) => row.project.orgId === orgId).map((row) => row.id));
+    for (const id of wanted) {
+        if (!inThisOrg.has(id)) failed.push({ id, reason: 'No task with that id in this organization' });
+    }
+
+    for (const id of wanted) {
+        if (!inThisOrg.has(id)) continue;
+        try {
+            switch (input.action) {
+                case 'status':
+                    if (!input.status) throw new BadRequest('`status` is required');
+                    await updateTask(user, id, { status: input.status });
+                    break;
+                case 'priority':
+                    if (!input.priority) throw new BadRequest('`priority` is required');
+                    await updateTask(user, id, { priority: input.priority });
+                    break;
+                case 'delete':
+                    await deleteTask(user, id);
+                    break;
+                case 'move':
+                    if (!input.sectionId) throw new BadRequest('`sectionId` is required');
+                    await moveTask(user, id, { sectionId: input.sectionId, inheritSectionStatus: input.inheritSectionStatus ?? false });
+                    break;
+                case 'assign':
+                    await setAssignees(user, id, { userIds: input.assigneeIds ?? [], mode: input.assignMode ?? 'add' });
+                    break;
+            }
+            updated.push(id);
+        } catch (error) {
+            failed.push({ id, reason: error instanceof AppError ? error.message : 'Could not update this task' });
+        }
+    }
+
+    if (updated.length > 0) {
+        await recordActivity({
+            orgId,
+            actorId: user.id,
+            type: 'task.bulk_updated',
+            meta: { action: input.action, count: updated.length, failed: failed.length },
+        });
+    }
+    return { updated, failed };
 }
 
 export async function setLabels(user: AuthUser, taskId: string, labelIds: string[]) {

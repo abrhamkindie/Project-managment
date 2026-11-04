@@ -30,7 +30,17 @@ export type RealtimeEvent =
     | 'task:updated'
     | 'task:deleted'
     | 'project:updated'
-    | 'members:changed';
+    | 'members:changed'
+    /**
+     * Somebody became online or offline. Sent to every organization room the person belongs
+     * to, with `orgId` in the payload so a client can patch the roster it is actually showing.
+     */
+    | 'presence:updated'
+    /**
+     * Tells a connected client its memberships may have changed: the server cannot join
+     * rooms on someone else's socket, so the client answers by emitting `rooms:sync`.
+     */
+    | 'rooms:refresh';
 
 export function emitToUser(userId: string, event: RealtimeEvent, payload: unknown): void {
     if (!io) return;

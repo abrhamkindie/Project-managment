@@ -3,7 +3,7 @@
 import { Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { fullName } from '~/lib/format';
-import type { LightUser } from '~/lib/types';
+import type { LightUser, PresenceDto } from '~/lib/types';
 import { Avatar } from './ui';
 
 /**
@@ -11,6 +11,10 @@ import { Avatar } from './ui';
  *
  * One component because the same choice appears in four places (project members, task
  * assignees, teams, invitations) and each of them needs search plus a visible selection.
+ *
+ * `presence` is optional: a picker that knows who is around can say so, and handing work to
+ * somebody who has been away for a week is a different decision than handing it to the person
+ * reading their inbox right now.
  */
 export function UserPicker({
     users,
@@ -18,12 +22,14 @@ export function UserPicker({
     onChange,
     label,
     emptyHint = 'Nobody to pick from yet.',
+    presence,
 }: {
     users: LightUser[];
     value: string[];
     onChange: (next: string[]) => void;
     label?: string;
     emptyHint?: string;
+    presence?: Map<string, PresenceDto>;
 }) {
     const [term, setTerm] = useState('');
     const selected = new Set(value);
@@ -70,11 +76,12 @@ export function UserPicker({
                     <li key={user.id}>
                         <label className="nav-item cursor-pointer gap-2">
                             <input type="checkbox" className="checkbox" checked={selected.has(user.id)} onChange={() => toggle(user.id)} />
-                            <Avatar user={user} size="sm" />
+                            <Avatar user={user} size="sm" presence={presence ? presence.get(user.id)?.online : undefined} />
                             <span className="min-w-0 flex-1 truncate">
                                 {fullName(user)}
                                 <span className="ml-1.5 text-xs text-ink-faint">{user.email}</span>
                             </span>
+                            {presence?.get(user.id)?.online ? <span className="shrink-0 text-[11px] text-state-done">Active</span> : null}
                         </label>
                     </li>
                 ))}

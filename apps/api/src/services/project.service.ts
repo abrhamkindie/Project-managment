@@ -4,10 +4,11 @@ import { BadRequest, Conflict, Forbidden } from '../domain/errors.js';
 import { DEFAULT_SECTIONS, type OrgRole } from '../domain/enums.js';
 import { can, type Access } from '../domain/permissions.js';
 import { rankBetween } from '../lib/crypto.js';
+import { contains } from '../lib/search.js';
 import { loadProjectAccess } from './access.js';
 import { notify, recordActivity } from './activity.js';
 import { presentProject, presentSection } from './presenters.js';
-import { emitToOrg, emitToProject } from '../realtime/bus.js';
+import { emitToOrg, emitToProject, emitToUser } from '../realtime/bus.js';
 import type { AuthUser } from '../types/express.js';
 import type { CreateProjectInput, ProjectListQuery, UpdateProjectInput } from '../domain/schemas.js';
 
@@ -129,7 +130,7 @@ export async function listProjects(user: AuthUser, orgId: string, query: Project
     }
     if (query.teamId) where.teamId = query.teamId;
     if (query.memberId) where.members = { some: { userId: query.memberId } };
-    if (query.search) where.name = { contains: query.search };
+    if (query.search) where.name = contains(query.search);
 
     const [rows, total] = await Promise.all([
         prisma.project.findMany({
@@ -281,6 +282,9 @@ export async function addProjectMembers(actor: AuthUser, projectId: string, user
         meta: { userIds: unique, role },
     });
     emitToProject(projectId, 'members:changed', { projectId });
+    // They cannot receive `members:changed` — not being in the room is the whole problem —
+    // so each new member gets a direct nudge to re-subscribe.
+    for (const userId of unique) emitToUser(userId, 'rooms:refresh', { projectId });
     return { projectId, added: unique };
 }
 
@@ -297,6 +301,7 @@ export async function removeProjectMember(actor: AuthUser, projectId: string, us
         meta: { userId },
     });
     emitToProject(projectId, 'members:changed', { projectId });
+    emitToUser(userId, 'rooms:refresh', { projectId });
     return { projectId, removed: userId };
 }
 

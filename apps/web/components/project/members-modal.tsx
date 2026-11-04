@@ -1,25 +1,36 @@
 'use client';
 
 import { useState } from 'react';
-import { Crown, UserPlus, X } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { Crown, Mail, UserPlus, X } from 'lucide-react';
 import { fullName } from '~/lib/format';
-import { usePeople, useProjectMembers } from '~/lib/hooks';
-import type { ProjectDetailDto, ProjectRole } from '~/lib/types';
-import { Avatar, Button, Modal, Select, Spinner } from '../ui';
+import { useInviteMembers, usePeople, useProjectMembers } from '~/lib/hooks';
+import { keys } from '~/lib/queries';
+import type { OrgRole, ProjectDetailDto, ProjectRole } from '~/lib/types';
+import { Avatar, Button, Field, Modal, Select, Spinner } from '../ui';
 import { UserPicker } from '../user-picker';
 
 /**
  * Who works on this project.
  *
- * Project membership is separate from workspace membership on purpose: a person can be in the
- * workspace and still not see a private project, so this screen adds from the workspace list
- * rather than inventing a second kind of user.
+ * Two ways to add people: pick existing workspace members, or invite a brand-new email. The
+ * email path reuses the workspace invitation endpoint but tags it with this project's id, so an
+ * acceptee is dropped straight into the project (and the workspace) once they join.
  */
 export function ProjectMembersModal({ project, orgId, onClose }: { project: ProjectDetailDto; orgId: string; onClose: () => void }) {
+    const client = useQueryClient();
     const people = usePeople(orgId);
     const members = useProjectMembers(project.id);
+    const invite = useInviteMembers(orgId);
     const [picked, setPicked] = useState<string[]>([]);
     const [role, setRole] = useState<ProjectRole>('member');
+    const [emails, setEmails] = useState('');
+    const [inviteRole, setInviteRole] = useState<OrgRole>('member');
+
+    const inviteList = emails
+        .split(/[\s,;]+/)
+        .map((entry) => entry.trim())
+        .filter(Boolean);
 
     const current = new Set(project.memberIds);
     const candidates = people.people.filter((person) => !current.has(person.id));
@@ -90,6 +101,57 @@ export function ProjectMembersModal({ project, orgId, onClose }: { project: Proj
                         onChange={setPicked}
                         emptyHint="Everyone in the workspace already works on this project."
                     />
+                </div>
+
+                <div className="space-y-3 border-t border-line pt-3">
+                    <div className="flex items-center justify-between gap-2">
+                        <h3 className="text-xs font-semibold uppercase text-ink-faint">Invite by email</h3>
+                        <Select
+                            value={inviteRole}
+                            aria-label="Workspace role for invitees"
+                            className="w-36"
+                            onChange={(event) => setInviteRole(event.target.value as OrgRole)}
+                        >
+                            <option value="member">Member</option>
+                            <option value="manager">Manager</option>
+                            <option value="admin">Admin</option>
+                        </Select>
+                    </div>
+                    <Field label="Email addresses" hint="They get an invitation email; on accepting they land straight in this project.">
+                        <textarea
+                            className="field min-h-20 font-mono text-sm"
+                            value={emails}
+                            onChange={(event) => setEmails(event.target.value)}
+                            placeholder="ada@example.com, linus@example.com"
+                        />
+                    </Field>
+                    <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs text-ink-faint">
+                            {inviteList.length > 0 ? `${inviteList.length} address${inviteList.length === 1 ? '' : 'es'} ready` : ''}
+                        </span>
+                        <Button
+                            variant="primary"
+                            size="sm"
+                            icon={<Mail className="h-4 w-4" />}
+                            loading={invite.isPending}
+                            disabled={inviteList.length === 0}
+                            onClick={() =>
+                                invite.mutate(
+                                    { emails: inviteList, role: inviteRole, projectIds: [project.id] },
+                                    {
+                                        onSuccess: () => {
+                                            setEmails('');
+                                            // Existing workspace accounts join immediately; refresh so they appear.
+                                            void client.invalidateQueries({ queryKey: keys.project(project.id) });
+                                            void client.invalidateQueries({ queryKey: keys.invitations(orgId) });
+                                        },
+                                    },
+                                )
+                            }
+                        >
+                            Send {inviteList.length > 0 ? inviteList.length : ''}
+                        </Button>
+                    </div>
                 </div>
             </div>
         </Modal>

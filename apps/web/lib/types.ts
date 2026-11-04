@@ -77,6 +77,18 @@ export interface MemberDto {
     teams: { id: string; name: string }[];
 }
 
+/**
+ * `GET /organizations/:orgId/presence` — one row per member of the workspace.
+ *
+ * `online` means the server holds a live socket for them *and* their tab was beating inside the
+ * stale window; `lastSeenAt` is the moment that stopped, which is what the away state shows.
+ */
+export interface PresenceDto {
+    userId: string;
+    online: boolean;
+    lastSeenAt: string | null;
+}
+
 export interface InvitationDto {
     id: string;
     email: string;
@@ -162,6 +174,12 @@ export interface TaskCardDto {
     projectId: string;
     sectionId: string | null;
     parentTaskId: string | null;
+    /**
+     * Display-only ordinal inside the project (`#42`). Null on mutation and realtime
+     * payloads, where the server does not recompute it — the caches keep the known value.
+     * Never an identifier: links and ids still use `id`.
+     */
+    number: number | null;
     title: string;
     description: string | null;
     status: TaskStatus;
@@ -222,14 +240,22 @@ export interface TaskDetailDto extends TaskCardDto {
     subtasks: TaskCardDto[];
     parent: TaskCardDto | null;
     timeline: TimelineEntry[];
+    /** Feed rows older than the server's cap that were left out of `timeline`. */
+    olderHidden: number;
 }
 
 export interface BoardSectionDto extends SectionDto {
     tasks: TaskCardDto[];
+    /** Cards in the column overall, including the ones the cap left out. */
+    total: number;
+    /** True when `tasks` is only the first `BoardDto.limit` of `total`. */
+    truncated: boolean;
 }
 
 export interface BoardDto {
     project: Pick<ProjectSummary, 'id' | 'name' | 'color' | 'visibility' | 'status'>;
+    /** Cards returned per column; the rest are reachable through the task list. */
+    limit: number;
     sections: BoardSectionDto[];
     unassigned: TaskCardDto[];
 }
@@ -291,7 +317,14 @@ export interface WorkloadRow {
     user: { id: string; firstName: string; lastName: string; avatarUrl: string | null };
     open: number;
     overdue: number;
+    /** Tasks this person owns that are in a done status (all time, not just the window). */
     done: number;
+    /** Of the done tasks, how many finished inside the reporting window. */
+    completedInWindow: number;
+    /** Every task currently assigned to this person. */
+    assigned: number;
+    /** done / assigned as a percentage — the member's progress. */
+    progress: number;
     score: number;
 }
 
@@ -412,6 +445,27 @@ export interface MoveTaskBody {
 export interface AssignBody {
     userIds: string[];
     mode?: 'replace' | 'add' | 'remove';
+}
+
+/**
+ * One action over a batch of tasks (max 100 ids, which is what the selection UI caps at).
+ * `status`, `sectionId` or `assigneeIds` are required depending on `action`.
+ */
+export interface BulkTaskBody {
+    ids: string[];
+    action: 'status' | 'priority' | 'delete' | 'move' | 'assign';
+    status?: TaskStatus;
+    priority?: TaskPriority;
+    sectionId?: string;
+    inheritSectionStatus?: boolean;
+    assigneeIds?: string[];
+    assignMode?: 'add' | 'replace' | 'remove';
+}
+
+/** Per-id outcomes: a batch is allowed to partially succeed. */
+export interface BulkResultDto {
+    updated: string[];
+    failed: { id: string; reason: string }[];
 }
 
 export interface InviteBody {

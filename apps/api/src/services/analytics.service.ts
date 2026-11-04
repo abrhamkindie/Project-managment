@@ -125,11 +125,13 @@ export async function overview(user: AuthUser, orgId: string, query: AnalyticsQu
     for (const t of completed) touch(t.completedAt as Date).completed += 1;
     const throughput = [...buckets.values()].sort((a, b) => (a.bucket < b.bucket ? -1 : 1));
 
-    // Workload per person, restricted to people visible in this scope.
-    const workload = new Map<string, { open: number; overdue: number; done: number; score: number }>();
+    // Workload per person, restricted to people visible in this scope. Also carries each
+    // member's progress (assigned vs done) so the dashboard can show individual momentum.
+    const workload = new Map<string, { open: number; overdue: number; done: number; completedInWindow: number; assigned: number; score: number }>();
     for (const t of rows) {
         for (const a of t.assignees) {
-            const entry = workload.get(a.userId) ?? { open: 0, overdue: 0, done: 0, score: 0 };
+            const entry = workload.get(a.userId) ?? { open: 0, overdue: 0, done: 0, completedInWindow: 0, assigned: 0, score: 0 };
+            entry.assigned += 1;
             if (isOpenStatus(t.status)) {
                 entry.open += 1;
                 entry.score += 1 + priorityWeight(t.priority);
@@ -137,8 +139,9 @@ export async function overview(user: AuthUser, orgId: string, query: AnalyticsQu
                     entry.overdue += 1;
                     entry.score += 2;
                 }
-            } else if (isDoneStatus(t.status) && inWindow(t.completedAt)) {
+            } else if (isDoneStatus(t.status)) {
                 entry.done += 1;
+                if (inWindow(t.completedAt)) entry.completedInWindow += 1;
             }
             workload.set(a.userId, entry);
         }
@@ -148,7 +151,15 @@ export async function overview(user: AuthUser, orgId: string, query: AnalyticsQu
         select: { id: true, firstName: true, lastName: true, avatarUrl: true },
     });
     const workloadByPerson = people
-        .map((p) => ({ user: p, ...(workload.get(p.id) ?? { open: 0, overdue: 0, done: 0, score: 0 }) }))
+        .map((p) => {
+            const w = workload.get(p.id) ?? { open: 0, overdue: 0, done: 0, completedInWindow: 0, assigned: 0, score: 0 };
+            return {
+                user: p,
+                ...w,
+                // Share of this person's assigned tasks that are done — their progress.
+                progress: w.assigned ? Math.round((w.done / w.assigned) * 1000) / 10 : 0,
+            };
+        })
         .sort((a, b) => b.score - a.score);
 
     // Per-project health, only meaningful for the organization view.

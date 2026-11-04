@@ -114,6 +114,18 @@ export async function inviteMembers(user: AuthUser, orgId: string, input: Invite
                 body: `${inviter.firstName} ${inviter.lastName} added you as ${input.role}.`,
                 link: '/dashboard',
             });
+            // Existing account auto-joins, so there is no invitation to accept — tell them by
+            // email directly that they have been added, otherwise the action would be silent.
+            await sendMail(
+                mails.addedToWorkspace({
+                    to: email,
+                    firstName: existingMember.firstName,
+                    orgName: org.name,
+                    inviterName: `${inviter.firstName} ${inviter.lastName}`,
+                    role: input.role,
+                    link: `${env.WEB_URL}/w/${org.slug}/dashboard`,
+                }),
+            );
             await recordActivity({
                 orgId,
                 actorId: user.id,
@@ -141,6 +153,10 @@ export async function inviteMembers(user: AuthUser, orgId: string, input: Invite
                 tokenHash: hashSecret(token),
                 invitedById: user.id,
                 expiresAt: addSeconds(new Date(), INVITE_TTL_DAYS * 86_400),
+                // Persist project/team context so a first-time invitee lands in the right places
+                // on acceptance, not just in the workspace.
+                teamIds: JSON.stringify(input.teamIds ?? []),
+                projectIds: JSON.stringify(input.projectIds ?? []),
             },
         });
         await recordActivity({ orgId, actorId: user.id, type: 'member.invited', meta: { email, role: input.role } });
@@ -196,6 +212,18 @@ export async function acceptInvitation(user: AuthUser, token: string) {
         }),
         prisma.invitation.update({ where: { id: invitation.id }, data: { acceptedAt: new Date() } }),
     ]);
+
+    // Carry the invitee into any projects/teams the inviter attached. Ids are stored as JSON; a
+    // corrupt row must not block the join, so parse defensively.
+    const parseIds = (raw: string | null): string[] => {
+        try {
+            const value = JSON.parse(raw ?? '[]');
+            return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
+        } catch {
+            return [];
+        }
+    };
+    await ensureMemberships(parseIds(invitation.teamIds), parseIds(invitation.projectIds), user.id);
 
     await recordActivity({
         orgId: invitation.orgId,

@@ -6,6 +6,7 @@ import { logger } from '../lib/logger.js';
 import { verifyAccessToken } from '../lib/tokens.js';
 import { ACCESS_COOKIE } from '../services/session.js';
 import { attachSocketServer, rooms } from './bus.js';
+import { joinSocket, leaveSocket, markSeen } from './presence.js';
 
 /**
  * Socket.IO gateway.
@@ -24,6 +25,35 @@ function parseCookies(header?: string): Record<string, string> {
             return [part.slice(0, index).trim(), decodeURIComponent(part.slice(index + 1).trim())];
         }),
     );
+}
+
+/** Rooms this user should be in right now. */
+async function expectedRooms(userId: string): Promise<Set<string>> {
+    const [memberships, projectRows] = await Promise.all([
+        prisma.organizationMember.findMany({ where: { userId }, select: { orgId: true } }),
+        prisma.projectMember.groupBy({ by: ['projectId'], where: { userId } }),
+    ]);
+    return new Set([
+        rooms.user(userId),
+        ...memberships.map((m) => rooms.org(m.orgId)),
+        ...projectRows.map((p) => rooms.project(p.projectId)),
+    ]);
+}
+
+/**
+ * Reconcile a socket's room list with the roster.
+ *
+ * Joining alone would leave a socket subscribed to a project it was removed from, which
+ * keeps pushing updates the user no longer has rights to see — so rooms that are ours
+ * (prefixed) and no longer expected are left as well.
+ */
+async function syncRooms(socket: Socket, userId: string): Promise<void> {
+    const expected = await expectedRooms(userId);
+    const current = [...socket.rooms].filter((name) => name !== socket.id);
+    await Promise.all([
+        ...[...expected].filter((name) => !current.includes(name)).map((name) => socket.join(name)),
+        ...current.filter((name) => !expected.has(name)).map((name) => socket.leave(name)),
+    ]);
 }
 
 export function initRealtime(httpServer: HttpServer): Server {
@@ -50,19 +80,31 @@ export function initRealtime(httpServer: HttpServer): Server {
 
     io.on('connection', async (socket: Socket) => {
         const userId = socket.data.userId as string;
-        await socket.join(rooms.user(userId));
+        await syncRooms(socket, userId);
+        // Having a socket is not yet being here: the stamp is set now so a reload does not show
+        // the person as "last seen yesterday" for a minute, but staying online needs heartbeats.
+        await joinSocket(userId, socket.id).catch((error) => logger.warn({ err: error, userId }, 'presence join failed'));
 
-        const memberships = await prisma.organizationMember.findMany({
-            where: { userId },
-            select: { orgId: true },
+        // Membership changes cannot add a room to a socket from the outside, so services
+        // nudge the client with `rooms:refresh` and the client asks for this reconciliation.
+        socket.on('rooms:sync', async () => {
+            try {
+                await syncRooms(socket, userId);
+            } catch (error) {
+                logger.warn({ err: error, userId }, 'room sync failed');
+            }
         });
-        const projectCount = await prisma.projectMember.groupBy({ by: ['projectId'], where: { userId } });
-        await Promise.all([
-            ...memberships.map((m) => socket.join(rooms.org(m.orgId))),
-            ...projectCount.map((p) => socket.join(rooms.project(p.projectId))),
-        ]);
 
-        socket.on('disconnect', () => logger.debug({ userId }, 'socket disconnected'));
+        // Sent by a tab that is visible to its user. The server stores it at most once a minute
+        // and only broadcasts when it actually changes somebody's state.
+        socket.on('presence:heartbeat', () => {
+            markSeen(userId).catch((error) => logger.warn({ err: error, userId }, 'presence beat failed'));
+        });
+
+        socket.on('disconnect', () => {
+            logger.debug({ userId }, 'socket disconnected');
+            void leaveSocket(userId, socket.id).catch((error) => logger.warn({ err: error, userId }, 'presence leave failed'));
+        });
     });
 
     attachSocketServer(io);

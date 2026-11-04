@@ -52,12 +52,18 @@ export const TASK_INCLUDE = {
 
 export type TaskWithRelations = Prisma.TaskGetPayload<{ include: typeof TASK_INCLUDE }>;
 
-export function presentTask(task: TaskWithRelations, now = new Date()) {
+export function presentTask(task: TaskWithRelations, now = new Date(), number?: number | null) {
     return {
         id: task.id,
         projectId: task.projectId,
         sectionId: task.sectionId,
         parentTaskId: task.parentTaskId,
+        /**
+         * Ordinal inside the project (`#42`), for humans only: computed from creation order
+         * rather than stored, so it needs no migration and is not a durable identifier.
+         * Absent where computing it would cost more than the label is worth.
+         */
+        number: number ?? null,
         title: task.title,
         description: task.description,
         status: task.status,
