@@ -1,24 +1,28 @@
-import { PrismaClient } from '@prisma/client';
-import { env } from '../config/env.js';
+import { PrismaClient } from "@prisma/client";
+import { env } from "../config/env.js";
 
 /**
- * A single Prisma client for the whole process. Connection pooling is handled by the
- * driver, so one client per Node instance is the recommended shape.
+ * Single PrismaClient instance for the entire application.
+ *
+ * In development with `tsx watch`, hot reload would otherwise create a new client on
+ * every save, exhausting the connection pool. The global variable prevents this.
  */
-declare global {
-    var __atlasPrisma: PrismaClient | undefined;
-}
+const globalForPrisma = global as unknown as { prisma?: PrismaClient };
 
-export const prisma: PrismaClient =
-    global.__atlasPrisma ??
-    new PrismaClient({
-        log: env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
-    });
+// Configure logging based on environment
+const logLevel =
+  env.NODE_ENV === "development"
+    ? ["query" as const, "error" as const, "warn" as const]
+    : ["error" as const];
 
-// `tsx watch` restarts modules without dropping the process in some setups; reusing the
-// client avoids exhausting database connections during development.
-if (!env.isProd) global.__atlasPrisma = prisma;
+export const prisma =
+  globalForPrisma.prisma ??
+  new PrismaClient({
+    log: logLevel,
+  });
 
-export async function disconnectPrisma() {
-    await prisma.$disconnect();
+if (env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+
+export async function disconnectPrisma(): Promise<void> {
+  await prisma.$disconnect();
 }

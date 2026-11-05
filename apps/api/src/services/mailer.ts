@@ -1,6 +1,6 @@
-import nodemailer, { type Transporter } from 'nodemailer';
-import { env } from '../config/env.js';
-import { logger } from '../lib/logger.js';
+import nodemailer, { type Transporter } from "nodemailer";
+import { env } from "../config/env.js";
+import { logger } from "../lib/logger.js";
 
 /**
  * Outbound email. `console` driver in development (no SMTP needed, nothing is silently
@@ -19,13 +19,15 @@ import { logger } from '../lib/logger.js';
 let transporter: Transporter | null = null;
 
 function getTransporter(): Transporter | null {
-  if (env.MAIL_DRIVER !== 'smtp') return null;
+  if (env.MAIL_DRIVER !== "smtp") return null;
   if (!transporter) {
     transporter = nodemailer.createTransport({
       host: env.SMTP_HOST,
       port: env.SMTP_PORT ?? 587,
       secure: (env.SMTP_PORT ?? 587) === 465,
-      auth: env.SMTP_USER ? { user: env.SMTP_USER, pass: env.SMTP_PASS } : undefined,
+      auth: env.SMTP_USER
+        ? { user: env.SMTP_USER, pass: env.SMTP_PASS }
+        : undefined,
     });
   }
   return transporter;
@@ -41,13 +43,16 @@ export interface Mail {
 export async function sendMail(mail: Mail): Promise<void> {
   const smtp = getTransporter();
   if (!smtp) {
-    logger.info({ to: mail.to, subject: mail.subject }, '[mail:console]');
+    logger.info({ to: mail.to, subject: mail.subject }, "[mail:console]");
     return;
   }
   try {
     await smtp.sendMail({ from: env.MAIL_FROM, ...mail });
   } catch (error) {
-    logger.error({ err: error, to: mail.to, subject: mail.subject }, 'Failed to send email');
+    logger.error(
+      { err: error, to: mail.to, subject: mail.subject },
+      "Failed to send email",
+    );
   }
 }
 
@@ -56,18 +61,18 @@ export async function sendMail(mail: Mail): Promise<void> {
 /** Escape user-supplied text before it enters HTML. Nothing in the templates trusts input. */
 const esc = (value: string): string =>
   String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 
-const BRAND = '#4f46e5';
-const DANGER = '#dc2626';
-const INK = '#111827';
-const MUTED = '#6b7280';
-const SURFACE = '#f8fafc';
-const HAIRLINE = '#eef2f7';
+const BRAND = "#4f46e5";
+const DANGER = "#dc2626";
+const INK = "#111827";
+const MUTED = "#6b7280";
+const SURFACE = "#f8fafc";
+const HAIRLINE = "#eef2f7";
 
 interface DetailRow {
   label: string;
@@ -100,15 +105,15 @@ interface ComposeInput {
 }
 
 const detailsCard = (rows: DetailRow[]): string => {
-  if (!rows.length) return '';
+  if (!rows.length) return "";
   const body = rows
     .map(
       (r, i) => `<tr>
-  <td style="padding:13px 0;${i === rows.length - 1 ? '' : `border-bottom:1px solid ${HAIRLINE};`}color:${MUTED};font-size:14px;white-space:nowrap;width:34%">${esc(r.label)}</td>
-  <td style="padding:13px 0;${i === rows.length - 1 ? '' : `border-bottom:1px solid ${HAIRLINE};`}color:${INK};font-size:14px;font-weight:600;text-align:right">${r.value}</td>
+  <td style="padding:13px 0;${i === rows.length - 1 ? "" : `border-bottom:1px solid ${HAIRLINE};`}color:${MUTED};font-size:14px;white-space:nowrap;width:34%">${esc(r.label)}</td>
+  <td style="padding:13px 0;${i === rows.length - 1 ? "" : `border-bottom:1px solid ${HAIRLINE};`}color:${INK};font-size:14px;font-weight:600;text-align:right">${r.value}</td>
 </tr>`,
     )
-    .join('');
+    .join("");
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:26px 0">
   <tr><td style="background:${SURFACE};border:1px solid ${HAIRLINE};border-radius:14px;padding:6px 22px">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0">${body}</table>
@@ -125,7 +130,7 @@ const primaryButton = (cta: Cta, accent: string): string =>
 
 function compose(input: ComposeInput): Mail {
   const accent = input.accent ?? BRAND;
-  const tint = input.tint ?? '#eef2ff';
+  const tint = input.tint ?? "#eef2ff";
 
   const html = `<!doctype html>
 <html lang="en">
@@ -153,14 +158,18 @@ function compose(input: ComposeInput): Mail {
         </td></tr>
 
         <tr><td style="padding:26px 40px 0">
-          ${input.greeting ? `<p style="margin:0 0 14px;font-size:16px;line-height:1.6;color:${INK}">${input.greeting}</p>` : ''}
+          ${input.greeting ? `<p style="margin:0 0 14px;font-size:16px;line-height:1.6;color:${INK}">${input.greeting}</p>` : ""}
           <div style="font-size:16px;line-height:1.6;color:#374151">${input.body}</div>
-          ${input.details ? detailsCard(input.details) : ''}
+          ${input.details ? detailsCard(input.details) : ""}
         </td></tr>
 
-        ${input.cta ? `<tr><td align="center" style="padding:6px 40px 0">${primaryButton(input.cta, accent)}
+        ${
+          input.cta
+            ? `<tr><td align="center" style="padding:6px 40px 0">${primaryButton(input.cta, accent)}
           <p style="margin:18px 0 0;font-size:12px;line-height:1.5;color:${MUTED}">Or copy and paste this link into your browser:<br><a href="${esc(input.cta.url)}" style="color:${MUTED};text-decoration:underline;word-break:break-all">${esc(input.cta.url)}</a></p>
-        </td></tr>` : ''}
+        </td></tr>`
+            : ""
+        }
 
         <tr><td style="padding:34px 40px;border-top:1px solid ${HAIRLINE};margin-top:34px">
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
@@ -168,19 +177,19 @@ function compose(input: ComposeInput): Mail {
               <td valign="middle">
                 <table role="presentation" cellpadding="0" cellspacing="0">
                   <tr>
-                    <td style="width:22px;height:22px;border-radius:6px;background:${accent};text-align:center;vertical-align:middle"><span style="color:#fff;font-weight:800;font-size:13px;line-height:22px">A</span></td>
-                    <td style="padding-left:8px;font-weight:700;font-size:14px;color:${accent}">Atlas</td>
+                    <td style="width:22px;height:22px;border-radius:6px;background:${accent};text-align:center;vertical-align:middle"><span style="color:#fff;font-weight:800;font-size:13px;line-height:22px">O</span></td>
+                    <td style="padding-left:8px;font-weight:700;font-size:14px;color:${accent}">Orbita</td>
                   </tr>
                 </table>
               </td>
-              <td align="right" valign="middle"><a href="${esc(env.WEB_URL)}" style="color:${MUTED};font-size:13px;text-decoration:none">Visit Atlas &rarr;</a></td>
+              <td align="right" valign="middle"><a href="${esc(env.WEB_URL)}" style="color:${MUTED};font-size:13px;text-decoration:none">Visit Orbita &rarr;</a></td>
             </tr>
           </table>
-          <p style="margin:16px 0 0;font-size:12px;line-height:1.6;color:${MUTED}">You&rsquo;re receiving this because you have an Atlas account. Manage what lands in your inbox any time from <a href="${esc(env.WEB_URL)}/settings" style="color:${MUTED};text-decoration:underline">notification preferences</a>.</p>
+          <p style="margin:16px 0 0;font-size:12px;line-height:1.6;color:${MUTED}">You&rsquo;re receiving this because you have an Orbita account. Manage what lands in your inbox any time from <a href="${esc(env.WEB_URL)}/settings" style="color:${MUTED};text-decoration:underline">notification preferences</a>.</p>
         </td></tr>
 
       </table>
-      <p style="max-width:600px;margin:20px auto 0;font-size:12px;line-height:1.5;color:#9ca3af;text-align:center">Atlas &middot; Project management for teams</p>
+      <p style="max-width:600px;margin:20px auto 0;font-size:12px;line-height:1.5;color:#9ca3af;text-align:center">Orbita &middot; Project management for teams</p>
     </td></tr>
   </table>
 </body>
@@ -189,9 +198,10 @@ function compose(input: ComposeInput): Mail {
   const textLines: string[] = [input.eyebrow.toUpperCase(), input.title];
   if (input.greeting) textLines.push(plain(input.greeting));
   textLines.push(plain(input.body));
-  for (const row of input.details ?? []) textLines.push(`${row.label}: ${plain(row.value)}`);
+  for (const row of input.details ?? [])
+    textLines.push(`${row.label}: ${plain(row.value)}`);
   if (input.cta) textLines.push(`${input.cta.label}: ${input.cta.url}`);
-  const text = `${input.subject}\n\n${textLines.filter(Boolean).join('\n')}\n`;
+  const text = `${input.subject}\n\n${textLines.filter(Boolean).join("\n")}\n`;
 
   return { to: input.to, subject: input.subject, html, text };
 }
@@ -199,137 +209,174 @@ function compose(input: ComposeInput): Mail {
 /** Turn an HTML fragment into readable plain text for the multipart alternative. */
 function plain(html: string): string {
   return html
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|li|tr|h1|h2)>/gi, '\n')
-    .replace(/<li[^>]*>/gi, '  \u2022 ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|li|tr|h1|h2)>/gi, "\n")
+    .replace(/<li[^>]*>/gi, "  \u2022 ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
     .replace(/&rsquo;/g, "'")
-    .replace(/ +([.,;:!?])/g, '$1')
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\n{2,}/g, '\n')
+    .replace(/ +([.,;:!?])/g, "$1")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{2,}/g, "\n")
     .trim();
 }
 
 // ------------------------------------------------------------------------- templates
 
 export const mails = {
-  welcome(input: { to: string; firstName: string; orgName: string; link: string }): Mail {
+  welcome(input: {
+    to: string;
+    firstName: string;
+    orgName: string;
+    link: string;
+  }): Mail {
     return compose({
       to: input.to,
-      subject: `Welcome to Atlas, ${input.firstName}`,
+      subject: `Welcome to Orbita, ${input.firstName}`,
       preheader: `Your workspace ${input.orgName} is ready to go.`,
-      eyebrow: 'Welcome aboard',
-      icon: '👋',
-      title: `Welcome to Atlas, ${input.firstName}!`,
+      eyebrow: "Welcome aboard",
+      icon: "👋",
+      title: `Welcome to Orbita, ${input.firstName}!`,
       greeting: `Hi ${esc(input.firstName)},`,
       body: `<p style="margin:0">Your workspace is set up and ready. Invite your teammates, create your first project, and start tracking work in one place.</p>`,
-      details: [{ label: 'Your workspace', value: esc(input.orgName) }],
-      cta: { label: 'Open your workspace', url: input.link },
+      details: [{ label: "Your workspace", value: esc(input.orgName) }],
+      cta: { label: "Open your workspace", url: input.link },
     });
   },
 
-  invitation(input: { to: string; orgName: string; inviterName: string; role: string; link: string }): Mail {
+  invitation(input: {
+    to: string;
+    orgName: string;
+    inviterName: string;
+    role: string;
+    link: string;
+  }): Mail {
     return compose({
       to: input.to,
       subject: `You've been invited to join ${input.orgName}`,
-      preheader: `${input.inviterName} invited you to ${input.orgName} on Atlas.`,
-      eyebrow: 'Invitation',
-      icon: '✉️',
+      preheader: `${input.inviterName} invited you to ${input.orgName} on Orbita.`,
+      eyebrow: "Invitation",
+      icon: "✉️",
       title: `Join ${input.orgName}`,
-      greeting: 'Hi there,',
-      body: `<p style="margin:0"><strong>${esc(input.inviterName)}</strong> invited you to collaborate in their Atlas workspace. Accept below to get started &mdash; this invitation expires in 7 days.</p>`,
+      greeting: "Hi there,",
+      body: `<p style="margin:0"><strong>${esc(input.inviterName)}</strong> invited you to collaborate in their Orbita workspace. Accept below to get started &mdash; this invitation expires in 7 days.</p>`,
       details: [
-        { label: 'Workspace', value: esc(input.orgName) },
-        { label: 'Your role', value: esc(input.role) },
-        { label: 'Invited by', value: esc(input.inviterName) },
+        { label: "Workspace", value: esc(input.orgName) },
+        { label: "Your role", value: esc(input.role) },
+        { label: "Invited by", value: esc(input.inviterName) },
       ],
-      cta: { label: 'Accept invitation', url: input.link },
+      cta: { label: "Accept invitation", url: input.link },
     });
   },
 
-  addedToWorkspace(input: { to: string; firstName: string; orgName: string; inviterName: string; role: string; link: string }): Mail {
+  addedToWorkspace(input: {
+    to: string;
+    firstName: string;
+    orgName: string;
+    inviterName: string;
+    role: string;
+    link: string;
+  }): Mail {
     return compose({
       to: input.to,
       subject: `You've been added to ${input.orgName}`,
-      preheader: `${input.inviterName} added you to ${input.orgName} on Atlas.`,
-      eyebrow: 'Workspace access',
-      icon: '🏢',
+      preheader: `${input.inviterName} added you to ${input.orgName} on Orbita.`,
+      eyebrow: "Workspace access",
+      icon: "🏢",
       title: `You've been added to ${input.orgName}`,
       greeting: `Hi ${esc(input.firstName)},`,
-      body: `<p style="margin:0"><strong>${esc(input.inviterName)}</strong> added your Atlas account to their workspace. You&rsquo;re in &mdash; no invitation to accept, just sign in and start collaborating.</p>`,
+      body: `<p style="margin:0"><strong>${esc(input.inviterName)}</strong> added your Orbita account to their workspace. You&rsquo;re in &mdash; no invitation to accept, just sign in and start collaborating.</p>`,
       details: [
-        { label: 'Workspace', value: esc(input.orgName) },
-        { label: 'Your role', value: esc(input.role) },
-        { label: 'Added by', value: esc(input.inviterName) },
+        { label: "Workspace", value: esc(input.orgName) },
+        { label: "Your role", value: esc(input.role) },
+        { label: "Added by", value: esc(input.inviterName) },
       ],
-      cta: { label: 'Open workspace', url: input.link },
+      cta: { label: "Open workspace", url: input.link },
     });
   },
 
-  taskAssigned(input: { to: string; assigneeName: string; actorName: string; taskTitle: string; projectName: string; due?: string | null; link: string }): Mail {
+  taskAssigned(input: {
+    to: string;
+    assigneeName: string;
+    actorName: string;
+    taskTitle: string;
+    projectName: string;
+    due?: string | null;
+    link: string;
+  }): Mail {
     const details: DetailRow[] = [
-      { label: 'Task', value: esc(input.taskTitle) },
-      { label: 'Project', value: esc(input.projectName) },
+      { label: "Task", value: esc(input.taskTitle) },
+      { label: "Project", value: esc(input.projectName) },
     ];
-    if (input.due) details.push({ label: 'Due date', value: esc(input.due) });
+    if (input.due) details.push({ label: "Due date", value: esc(input.due) });
     return compose({
       to: input.to,
       subject: `New task assigned to you: ${input.taskTitle}`,
       preheader: `${input.actorName} assigned "${input.taskTitle}" to you.`,
-      eyebrow: 'New assignment',
-      icon: '📌',
-      title: 'A task was assigned to you',
+      eyebrow: "New assignment",
+      icon: "📌",
+      title: "A task was assigned to you",
       greeting: `Hi ${esc(input.assigneeName)},`,
-      body: `<p style="margin:0"><strong>${esc(input.actorName)}</strong> assigned you a new task${input.due ? ` due <strong>${esc(input.due)}</strong>` : ''}.</p>`,
+      body: `<p style="margin:0"><strong>${esc(input.actorName)}</strong> assigned you a new task${input.due ? ` due <strong>${esc(input.due)}</strong>` : ""}.</p>`,
       details,
-      cta: { label: 'Open task', url: input.link },
+      cta: { label: "Open task", url: input.link },
     });
   },
 
-  commentAdded(input: { to: string; actorName: string; taskTitle: string; preview: string; link: string }): Mail {
+  commentAdded(input: {
+    to: string;
+    actorName: string;
+    taskTitle: string;
+    preview: string;
+    link: string;
+  }): Mail {
     return compose({
       to: input.to,
       subject: `New comment on ${input.taskTitle}`,
       preheader: `${input.actorName}: ${input.preview}`,
-      eyebrow: 'Mention & comments',
-      icon: '💬',
-      title: 'New comment on a task',
+      eyebrow: "Mention & comments",
+      icon: "💬",
+      title: "New comment on a task",
       body: `<p style="margin:0 0 14px"><strong>${esc(input.actorName)}</strong> commented on <strong>${esc(input.taskTitle)}</strong>:</p>
 <blockquote style="margin:0;padding:14px 18px;border-left:3px solid ${BRAND};background:${SURFACE};border-radius:0 12px 12px 0;color:#374151;font-size:15px;line-height:1.6">${esc(input.preview)}</blockquote>`,
-      details: [{ label: 'Task', value: esc(input.taskTitle) }],
-      cta: { label: 'View & reply', url: input.link },
+      details: [{ label: "Task", value: esc(input.taskTitle) }],
+      cta: { label: "View & reply", url: input.link },
     });
   },
 
-  dueSoon(input: { to: string; firstName: string; tasks: { title: string; project: string; due: string; overdue: boolean }[]; link: string }): Mail {
+  dueSoon(input: {
+    to: string;
+    firstName: string;
+    tasks: { title: string; project: string; due: string; overdue: boolean }[];
+    link: string;
+  }): Mail {
     const count = input.tasks.length;
     const hasOverdue = input.tasks.some((t) => t.overdue);
     const listItems = input.tasks
       .map(
         (t) => `<div style="padding:14px 0;border-bottom:1px solid ${HAIRLINE}">
-  ${t.overdue ? `<span style="display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:${DANGER};background:#fef2f2;border-radius:999px;padding:3px 10px;margin-bottom:6px">Overdue</span><br>` : ''}
+  ${t.overdue ? `<span style="display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:${DANGER};background:#fef2f2;border-radius:999px;padding:3px 10px;margin-bottom:6px">Overdue</span><br>` : ""}
   <span style="font-size:15px;font-weight:600;color:${INK}">${esc(t.title)}</span><br>
   <span style="font-size:13px;color:${MUTED}">${esc(t.project)} &middot; due ${esc(t.due)}</span>
 </div>`,
       )
-      .join('');
+      .join("");
     return compose({
       to: input.to,
-      subject: `${count} task${count === 1 ? '' : 's'} need your attention`,
-      preheader: `You have ${count} task${count === 1 ? '' : 's'} due or overdue.`,
-      eyebrow: hasOverdue ? 'Action needed' : 'Due soon',
-      icon: '⏰',
-      title: `${count} task${count === 1 ? '' : 's'} need attention`,
+      subject: `${count} task${count === 1 ? "" : "s"} need your attention`,
+      preheader: `You have ${count} task${count === 1 ? "" : "s"} due or overdue.`,
+      eyebrow: hasOverdue ? "Action needed" : "Due soon",
+      icon: "⏰",
+      title: `${count} task${count === 1 ? "" : "s"} need attention`,
       greeting: `Hi ${esc(input.firstName)},`,
-      body: `<p style="margin:0 0 6px">Here&rsquo;s what&rsquo;s on your plate${hasOverdue ? ', including overdue work' : ''}:</p>${listItems}`,
-      cta: { label: 'Open my tasks', url: input.link },
+      body: `<p style="margin:0 0 6px">Here&rsquo;s what&rsquo;s on your plate${hasOverdue ? ", including overdue work" : ""}:</p>${listItems}`,
+      cta: { label: "Open my tasks", url: input.link },
       accent: hasOverdue ? DANGER : BRAND,
-      tint: hasOverdue ? '#fef2f2' : '#eef2ff',
+      tint: hasOverdue ? "#fef2f2" : "#eef2ff",
     });
   },
 
@@ -341,52 +388,62 @@ export const mails = {
   passwordReset(input: { to: string; link: string; minutes: number }): Mail {
     return compose({
       to: input.to,
-      subject: 'Reset your Atlas password',
+      subject: "Reset your Orbita password",
       preheader: `This link expires in ${input.minutes} minutes.`,
-      eyebrow: 'Security',
-      icon: '🔑',
-      title: 'Reset your password',
-      greeting: 'Hello,',
-      body: `<p style="margin:0 0 14px">Someone asked to reset the password for this Atlas account. Use the button below to choose a new one &mdash; it works once and expires in <strong>${input.minutes} minutes</strong>.</p>
+      eyebrow: "Security",
+      icon: "🔑",
+      title: "Reset your password",
+      greeting: "Hello,",
+      body: `<p style="margin:0 0 14px">Someone asked to reset the password for this Orbita account. Use the button below to choose a new one &mdash; it works once and expires in <strong>${input.minutes} minutes</strong>.</p>
 <p style="margin:0;color:${MUTED};font-size:14px">If you did not ask for this, you can safely ignore this email; your password stays unchanged.</p>`,
-      cta: { label: 'Choose a new password', url: input.link },
+      cta: { label: "Choose a new password", url: input.link },
       accent: DANGER,
-      tint: '#fef2f2',
+      tint: "#fef2f2",
     });
   },
 
   passwordChanged(input: { to: string; firstName: string }): Mail {
     return compose({
       to: input.to,
-      subject: 'Your Atlas password was changed',
-      preheader: 'Every session on every device was signed out.',
-      eyebrow: 'Security',
-      icon: '✅',
-      title: 'Password changed',
+      subject: "Your Orbita password was changed",
+      preheader: "Every session on every device was signed out.",
+      eyebrow: "Security",
+      icon: "✅",
+      title: "Password changed",
       greeting: `Hi ${esc(input.firstName)},`,
-      body: `<p style="margin:0 0 14px">Your Atlas password was changed successfully, and <strong>every existing session was signed out</strong>.</p>
+      body: `<p style="margin:0 0 14px">Your Orbita password was changed successfully, and <strong>every existing session was signed out</strong>.</p>
 <p style="margin:0;color:${MUTED};font-size:14px">If this was not you, sign in and reset the password immediately, then tell your workspace admin.</p>`,
-      details: [{ label: 'Changed', value: new Date().toUTCString() }],
+      details: [{ label: "Changed", value: new Date().toUTCString() }],
     });
   },
 
-  statusChanged(input: { to: string; actorName: string; taskTitle: string; from: string; to2: string; link: string }): Mail {
-    const humanize = (s: string) => esc(s.replace(/_/g, ' '));
-    const toLabel = input.to2.replace(/_/g, ' ');
+  statusChanged(input: {
+    to: string;
+    actorName: string;
+    taskTitle: string;
+    from: string;
+    to2: string;
+    link: string;
+  }): Mail {
+    const humanize = (s: string) => esc(s.replace(/_/g, " "));
+    const toLabel = input.to2.replace(/_/g, " ");
     return compose({
       to: input.to,
       subject: `${input.taskTitle} moved to ${toLabel}`,
       preheader: `${input.actorName} updated the status of "${input.taskTitle}".`,
-      eyebrow: 'Status update',
-      icon: '🔄',
-      title: 'Task status changed',
+      eyebrow: "Status update",
+      icon: "🔄",
+      title: "Task status changed",
       body: `<p style="margin:0"><strong>${esc(input.actorName)}</strong> changed the status of <strong>${esc(input.taskTitle)}</strong>.</p>`,
       details: [
-        { label: 'Task', value: esc(input.taskTitle) },
-        { label: 'Was', value: humanize(input.from) },
-        { label: 'Now', value: `<strong style="color:${BRAND}">${humanize(input.to2)}</strong>` },
+        { label: "Task", value: esc(input.taskTitle) },
+        { label: "Was", value: humanize(input.from) },
+        {
+          label: "Now",
+          value: `<strong style="color:${BRAND}">${humanize(input.to2)}</strong>`,
+        },
       ],
-      cta: { label: 'View task', url: input.link },
+      cta: { label: "View task", url: input.link },
     });
   },
 };

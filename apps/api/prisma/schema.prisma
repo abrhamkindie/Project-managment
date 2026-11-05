@@ -311,9 +311,12 @@ model Task {
 
   @@index([projectId, status])
   @@index([projectId, sectionId])
+  @@index([projectId, sectionId, position])
   @@index([dueDate])
   @@index([parentTaskId])
   @@index([completedAt])
+  // Partial index for active tasks with due dates (PostgreSQL only)
+  // @@index([dueDate], where: { status: { in: ['todo', 'in_progress', 'in_review'] } })
 }
 
 model TaskAssignee {

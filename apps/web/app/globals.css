@@ -14,7 +14,7 @@
     :root {
         color-scheme: light;
 
-        /* Atlassian blue ramp (B50–B900-ish) */
+        /* Brand blue ramp */
         --brand-50: 222 235 255;
         --brand-100: 179 212 255;
         --brand-200: 76 154 255;
@@ -31,7 +31,7 @@
         --accent-hover: 7 71 166;
         --on-accent: 255 255 255;
 
-        /* Atlassian-ish neutrals */
+        /* Neutral tones */
         --canvas: 244 245 247;
         --surface: 255 255 255;
         --elevated: 255 255 255;
@@ -275,7 +275,7 @@
         @apply bg-active text-brand-700 hover:bg-active;
     }
 
-    /* Left accent rail — Jira/Atlassian active marker */
+    /* Left accent rail — active marker */
     .nav-item-active::before {
         @apply absolute -left-2.5 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-full bg-brand-500 content-[''];
     }
