@@ -1,8 +1,8 @@
 {
-  "name": "orbita",
+  "name": "zorqen",
   "version": "1.0.0",
   "private": true,
-  "description": "Orbita — a production-ready project management platform (projects, tasks, assignment, collaboration, analytics)",
+  "description": "ZORQEN — a production-ready project management platform (projects, tasks, assignment, collaboration, analytics)",
   "license": "MIT",
   "engines": {
     "node": ">=20.11"
@@ -11,20 +11,22 @@
     "apps/*"
   ],
   "scripts": {
-    "dev": "npm run dev --workspace @orbita/api & npm run dev --workspace @orbita/web",
-    "build": "npm run build --workspace @orbita/api && npm run build --workspace @orbita/web",
+    "dev": "npm run dev --workspace @zorqen/api & npm run dev --workspace @zorqen/web",
+    "build": "npm run build --workspace @zorqen/api && npm run build --workspace @zorqen/web",
     "start": "node apps/api/dist/index.js",
-    "test": "npm run test --workspace @orbita/api",
-    "test:watch": "npm run test:watch --workspace @orbita/api",
+    "test": "npm run test --workspace @zorqen/api",
+    "test:watch": "npm run test:watch --workspace @zorqen/api",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "smoke": "node scripts/smoke.mjs",
     "smoke:web": "node scripts/smoke-web.mjs",
-    "db:sqlite": "node scripts/use-db.mjs sqlite && npm run prisma:push --workspace @orbita/api",
+    "db:sqlite": "node scripts/use-db.mjs sqlite && npm run prisma:push --workspace @zorqen/api",
     "db:postgres": "node scripts/use-db.mjs postgres",
-    "db:seed": "npm run prisma:seed --workspace @orbita/api",
-    "db:generate": "npm run prisma:generate --workspace @orbita/api",
+    "db:migrate": "npm run prisma:migrate --workspace @zorqen/api",
+    "db:deploy": "npm run prisma:deploy --workspace @zorqen/api",
+    "db:seed": "npm run prisma:seed --workspace @zorqen/api",
+    "db:generate": "npm run prisma:generate --workspace @zorqen/api",
     "prepare": "husky"
   },
   "devDependencies": {

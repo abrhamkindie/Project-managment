@@ -19,9 +19,9 @@ export const viewport: Viewport = {
 };
 
 export const metadata = {
-  title: { default: "Orbita", template: "%s · Orbita" },
+  title: { default: "ZORQEN", template: "%s · ZORQEN" },
   description:
-    "Orbita is a project workspace: projects, tasks, assignments and analytics in one place.",
+    "ZORQEN is a project workspace: projects, tasks, assignments and analytics in one place.",
   // A private team tool should not be crawled, and signed-out pages have nothing to index.
   robots: { index: false, follow: false },
 };
@@ -44,7 +44,7 @@ export const metadata = {
  * The stored/system theme is applied as the final step so the correct `dark` class is on
  * `<html>` from the very first paint.
  */
-const BOOT_SCRIPT = `(function(){var P=['bis_skin_checked','bis_register'];function isT(n){return P.indexOf(n)>-1||n.indexOf('__processed_')===0;}try{var s=Element.prototype.setAttribute;Element.prototype.setAttribute=function(n,v){if(isT(n))return;s.call(this,n,v);};}catch(e){}function clean(el){try{for(var i=el.attributes.length-1;i>=0;i--){var n=el.attributes[i].name;if(isT(n))el.removeAttribute(n);}}catch(e){}}try{var all=document.querySelectorAll('['+P.join('],[')+']');for(var i=0;i<all.length;i++)clean(all[i]);if(window.MutationObserver){new MutationObserver(function(rs){for(var i=0;i<rs.length;i++){var r=rs[i];if(r.type==='attributes'){var t=r.target,a=r.attributeName;if(a&&isT(a))t.removeAttribute(a);}else{for(var j=0;j<r.addedNodes.length;j++){var el=r.addedNodes[j];if(el.nodeType===1)clean(el);}}}}).observe(document.documentElement,{childList:true,subtree:true,attributes:true});}}catch(e){}try{var k='atlas-theme';var t=localStorage.getItem(k)||'system';var d=t==='dark'||(t==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches);var c=document.documentElement.classList;if(d)c.add('dark');else c.remove('dark');document.documentElement.style.colorScheme=d?'dark':'light';}catch(e){}})();`;
+const BOOT_SCRIPT = `(function(){var P=['bis_skin_checked','bis_register'];function isT(n){return P.indexOf(n)>-1||n.indexOf('__processed_')===0;}try{var s=Element.prototype.setAttribute;Element.prototype.setAttribute=function(n,v){if(isT(n))return;s.call(this,n,v);};}catch(e){}function clean(el){try{for(var i=el.attributes.length-1;i>=0;i--){var n=el.attributes[i].name;if(isT(n))el.removeAttribute(n);}}catch(e){}}try{var all=document.querySelectorAll('['+P.join('],[')+']');for(var i=0;i<all.length;i++)clean(all[i]);if(window.MutationObserver){new MutationObserver(function(rs){for(var i=0;i<rs.length;i++){var r=rs[i];if(r.type==='attributes'){var t=r.target,a=r.attributeName;if(a&&isT(a))t.removeAttribute(a);}else{for(var j=0;j<r.addedNodes.length;j++){var el=r.addedNodes[j];if(el.nodeType===1)clean(el);}}}}).observe(document.documentElement,{childList:true,subtree:true,attributes:true});}}catch(e){}try{var k='zorqen-theme';var t=localStorage.getItem(k)||'system';var d=t==='dark'||(t==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches);var c=document.documentElement.classList;if(d)c.add('dark');else c.remove('dark');document.documentElement.style.colorScheme=d?'dark':'light';}catch(e){}})();`;
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   // `suppressHydrationWarning` on `<html>` and `<body>` is React's blessed escape hatch for

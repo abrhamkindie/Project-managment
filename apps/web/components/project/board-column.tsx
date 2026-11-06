@@ -219,7 +219,7 @@ export function BoardColumn({
             </header>
 
             <SortableContext items={visible.map((task) => task.id)} strategy={verticalListSortingStrategy}>
-                <div className="flex-1 space-y-2 overflow-y-auto px-3 py-2">
+                <div data-board-column={section?.id ?? 'unassigned'} className="flex-1 space-y-2 overflow-y-auto px-3 py-2">
                     {visible.map((task) => (
                         <TaskCard
                             key={task.id}

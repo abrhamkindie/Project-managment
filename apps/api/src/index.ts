@@ -28,7 +28,7 @@ async function main(): Promise<void> {
         storage: env.STORAGE_DRIVER,
         mail: env.MAIL_DRIVER,
       },
-      "Orbita API server started",
+      "ZORQEN API server started",
     );
   });
 
@@ -64,6 +64,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
-  logger.fatal({ err: error }, "Failed to start Atlas API");
+  logger.fatal({ err: error }, "Failed to start ZORQEN API");
   process.exit(1);
 });

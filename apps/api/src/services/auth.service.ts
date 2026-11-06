@@ -1,4 +1,5 @@
 import { prisma } from "../lib/prisma.js";
+import { logger } from "../lib/logger.js";
 import { BadRequest, Conflict, Unauthorized } from "../domain/errors.js";
 import {
   hashPassword,
@@ -37,6 +38,14 @@ export interface Authenticated {
   userId: string;
   tokens: SessionTokens;
 }
+
+/**
+ * Password step of sign-in. The two arms are exclusive by type: when a second factor is required
+ * there is no session to hand out, so a caller cannot accidentally use one that was never issued.
+ */
+export type LoginResult =
+  | { userId: string; mfaRequired: false; tokens: SessionTokens }
+  | { userId: string; mfaRequired: true; tokens: null };
 
 export async function register(
   input: RegisterInput,
@@ -95,7 +104,7 @@ export async function register(
 export async function login(
   input: LoginInput,
   meta: SessionMeta,
-): Promise<Authenticated> {
+): Promise<LoginResult> {
   const user = await prisma.user.findUnique({
     where: { email: input.email.toLowerCase() },
   });
@@ -110,11 +119,19 @@ export async function login(
   if (!(await verifyPassword(input.password, user.passwordHash ?? ""))) {
     throw new Unauthorized("Incorrect email or password");
   }
-  if (!user.isActive)
+  if (!user.isActive) {
     throw new Unauthorized("This account has been deactivated");
+  }
+
+  // Two-factor is decided *before* a session exists: a password alone must never be enough to
+  // obtain a refresh token, not even one the caller would then be told to trade in.
+  if (user.mfaEnabled) {
+    logger.info({ userId: user.id }, "login paused for two-factor");
+    return { userId: user.id, tokens: null, mfaRequired: true };
+  }
 
   const tokens = await createSession(user.id, meta);
-  return { userId: user.id, tokens };
+  return { userId: user.id, tokens, mfaRequired: false };
 }
 
 export async function profile(userId: string) {
@@ -141,10 +158,10 @@ export async function profile(userId: string) {
   const orgIds = user.memberships.map((m) => m.orgId);
   const counts = orgIds.length
     ? await prisma.organizationMember.groupBy({
-        by: ["orgId"],
-        where: { orgId: { in: orgIds } },
-        _count: { _all: true },
-      })
+      by: ["orgId"],
+      where: { orgId: { in: orgIds } },
+      _count: { _all: true },
+    })
     : [];
   const countByOrg = new Map(counts.map((c) => [c.orgId, c._count._all]));
 
@@ -212,7 +229,7 @@ export async function changePassword(
 /** Shown once a reset lands, and never varied by account state. */
 const RESET_REQUESTED = {
   ok: true as const,
-  message: "If that address has an Orbita password, a reset link is on its way",
+  message: "If that address has an ZORQEN password, a reset link is on its way",
 };
 
 /** `a***@domain.com` — enough for a human to recognise the address, not a full reveal. */
@@ -307,8 +324,7 @@ export async function resetPassword(
     stored.usedAt ||
     stored.expiresAt.getTime() < Date.now() ||
     !stored.user.isActive
-  )
-    throw invalid;
+  ) { throw invalid; }
 
   const consumed = await prisma.passwordResetToken.updateMany({
     where: { id: stored.id, usedAt: null },

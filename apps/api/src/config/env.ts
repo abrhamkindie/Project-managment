@@ -73,7 +73,7 @@ const Schema = z.object({
   MAX_UPLOAD_MB: z.coerce.number().int().positive().default(10),
 
   MAIL_DRIVER: z.enum(["console", "smtp"]).default("console"),
-  MAIL_FROM: z.string().default("Orbita <no-reply@orbita.local>"),
+  MAIL_FROM: z.string().default("ZORQEN <no-reply@zorqen.local>"),
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().optional(),
   SMTP_USER: z.string().optional(),
@@ -82,6 +82,8 @@ const Schema = z.object({
   CRON_ENABLED: Booleanish.default(true),
   DUE_REMINDER_CRON: z.string().default("0 8 * * *"),
   HOUSEKEEPING_CRON: z.string().default("30 3 * * *"),
+  /** Recurring-task materialisation sweep; hourly so a completed instance re-issues same-day. */
+  RECURRENCE_CRON: z.string().default("15 * * * *"),
   /** Inbox hygiene: notifications older than this are pruned by the housekeeping job. */
   NOTIFICATION_RETENTION_DAYS: z.coerce
     .number()
@@ -105,6 +107,28 @@ const Schema = z.object({
 
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
+
+  /**
+   * Symmetric key for secrets that must be readable at runtime (the TOTP seed). Optional: the
+   * access-token secret is used as the KDF input when unset, so existing deployments keep booting.
+   */
+  APP_ENCRYPTION_KEY: z.string().min(16).optional(),
+
+  /** Generic OIDC SSO (Keycloak, Authentik, Okta, Entra tenant...). All three must be set. */
+  OIDC_ISSUER_BASE_URL: z.string().optional(),
+  OIDC_CLIENT_ID: z.string().optional(),
+  OIDC_CLIENT_SECRET: z.string().optional(),
+  /** Optional override for issuers whose discovery document advertises a public-facing URL. */
+  OIDC_REDIRECT_URL: z.string().optional(),
+  /** Extra `audience` claim accepted besides the client id (multi-audience IdPs). */
+  OIDC_AUDIENCE: z.string().optional(),
+
+  /** Outbound webhook HTTP budget; a slow receiver must never hold the request that fired it. */
+  WEBHOOK_TIMEOUT_MS: z.coerce.number().int().min(500).max(30_000).default(5_000),
+  /** Attempts before a delivery is abandoned as failed. */
+  WEBHOOK_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(8).default(4),
+  /** Retry sweep; DB polling rather than a queue so Redis stays optional. */
+  WEBHOOK_RETRY_CRON: z.string().default("*/5 * * * *"),
 
   /** Redis configuration for Socket.IO scaling (required in production) */
   REDIS_URL: z.string().optional(),
@@ -170,6 +194,21 @@ export const env = {
   },
   get hasRedis(): boolean {
     return this.redisConfig !== null;
+  },
+  /** SSO providers that are actually usable; empty means the login page shows no buttons. */
+  get oauthProviders(): Record<string, { clientId: string }> {
+    const out: Record<string, { clientId: string }> = {};
+    if (parsed.data.GOOGLE_CLIENT_ID && parsed.data.GOOGLE_CLIENT_SECRET) {
+      out.google = { clientId: parsed.data.GOOGLE_CLIENT_ID };
+    }
+    if (
+      parsed.data.OIDC_ISSUER_BASE_URL &&
+      parsed.data.OIDC_CLIENT_ID &&
+      parsed.data.OIDC_CLIENT_SECRET
+    ) {
+      out.oidc = { clientId: parsed.data.OIDC_CLIENT_ID };
+    }
+    return out;
   },
 };
 

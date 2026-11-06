@@ -31,6 +31,11 @@ export const TEST_ENV: Record<string, string> = {
     // Durable credential counters are covered by their own unit test, not by every
     // integration spec that logs in repeatedly.
     CREDENTIAL_RATE_LIMIT: '1000000',
+    // Generic OIDC is exercised against a stub issuer (`tests/oidc.test.ts`), so the provider
+    // counts as configured for the whole run — no test reaches out to a real identity provider.
+    OIDC_ISSUER_BASE_URL: 'https://idp.test',
+    OIDC_CLIENT_ID: 'zorqen-test-client',
+    OIDC_CLIENT_SECRET: 'zorqen-test-secret',
 };
 
 for (const [key, value] of Object.entries(TEST_ENV)) process.env[key] = value;

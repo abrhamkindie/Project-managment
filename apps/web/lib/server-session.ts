@@ -23,7 +23,7 @@ import type { OrganizationSummary, ProjectDetailDto, Session } from "./types";
 export const getSession = cache(async (): Promise<Session | null> => {
   const jar = await cookies();
   const cookie = jar.toString();
-  if (!cookie.includes("orbita_at")) return null;
+  if (!cookie.includes("zorqen_at")) return null;
   try {
     return await api.get<Session>("/auth/me", { headers: { cookie } });
   } catch (error) {
@@ -77,7 +77,7 @@ export const getProjectOrgId = cache(
         error instanceof ApiError &&
         (error.isUnauthorized || error.status === 403 || error.status === 404)
       )
-        return null;
+        {return null;}
       throw error;
     }
   },

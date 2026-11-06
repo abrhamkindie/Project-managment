@@ -1,5 +1,5 @@
 /**
- * Demo seed for Atlas.
+ * Demo seed for ZORQEN.
  *
  * The data is generated from a fixed-seed LCG, so every run produces the same org,
  * the same tasks and — importantly — the same analytics shape. History is backdated
@@ -7,10 +7,10 @@
  * instead of being a single spike at "now".
  *
  * Run:  npm run db:seed            (skips if the demo org already exists)
- *       npm run db:seed -- --force (wipes Atlas tables first, then reseeds)
+ *       npm run db:seed -- --force (wipes ZORQEN tables first, then reseeds)
  */
 import { PrismaClient } from '@prisma/client';
-import { hashPassword } from '../src/lib/crypto.js';
+import { hashPassword, hashSecret, randomToken } from '../src/lib/crypto.js';
 import { DEFAULT_SECTIONS } from '../src/domain/enums.js';
 import type { TaskPriority, TaskStatus } from '../src/domain/enums.js';
 
@@ -52,17 +52,17 @@ const hoursFromNow = (h: number) => new Date(NOW.getTime() + h * 3_600_000);
 // ---------------------------------------------------------------- fixtures
 
 const USERS = [
-    { email: 'ada@atlas.local', firstName: 'Ada', lastName: 'Okonkwo', role: 'admin', timezone: 'UTC' },
-    { email: 'simon@atlas.local', firstName: 'Simon', lastName: 'Vega', role: 'manager', timezone: 'Europe/Madrid' },
-    { email: 'priya@atlas.local', firstName: 'Priya', lastName: 'Raman', role: 'manager', timezone: 'Asia/Kolkata' },
-    { email: 'marcus@atlas.local', firstName: 'Marcus', lastName: 'Holt', role: 'member', timezone: 'America/New_York' },
-    { email: 'yuki@atlas.local', firstName: 'Yuki', lastName: 'Tanaka', role: 'member', timezone: 'Asia/Tokyo' },
+    { email: 'ada@zorqen.local', firstName: 'Ada', lastName: 'Okonkwo', role: 'admin', timezone: 'UTC' },
+    { email: 'simon@zorqen.local', firstName: 'Simon', lastName: 'Vega', role: 'manager', timezone: 'Europe/Madrid' },
+    { email: 'priya@zorqen.local', firstName: 'Priya', lastName: 'Raman', role: 'manager', timezone: 'Asia/Kolkata' },
+    { email: 'marcus@zorqen.local', firstName: 'Marcus', lastName: 'Holt', role: 'member', timezone: 'America/New_York' },
+    { email: 'yuki@zorqen.local', firstName: 'Yuki', lastName: 'Tanaka', role: 'member', timezone: 'Asia/Tokyo' },
 ] as const;
 
 const TEAMS = [
-    { name: 'Product', slug: 'product', members: ['ada@atlas.local', 'priya@atlas.local', 'yuki@atlas.local'] },
-    { name: 'Engineering', slug: 'engineering', members: ['simon@atlas.local', 'marcus@atlas.local', 'priya@atlas.local'] },
-    { name: 'Growth', slug: 'growth', members: ['ada@atlas.local', 'marcus@atlas.local'] },
+    { name: 'Product', slug: 'product', members: ['ada@zorqen.local', 'priya@zorqen.local', 'yuki@zorqen.local'] },
+    { name: 'Engineering', slug: 'engineering', members: ['simon@zorqen.local', 'marcus@zorqen.local', 'priya@zorqen.local'] },
+    { name: 'Growth', slug: 'growth', members: ['ada@zorqen.local', 'marcus@zorqen.local'] },
 ] as const;
 
 const LABELS = [
@@ -93,8 +93,8 @@ const PROJECTS: ProjectSpec[] = [
         description: 'Marketing site rebuild on the new design system, ahead of the Q4 launch.',
         color: '#6366f1',
         team: 'engineering',
-        lead: 'simon@atlas.local',
-        members: ['simon@atlas.local', 'marcus@atlas.local', 'priya@atlas.local', 'ada@atlas.local'],
+        lead: 'simon@zorqen.local',
+        members: ['simon@zorqen.local', 'marcus@zorqen.local', 'priya@zorqen.local', 'ada@zorqen.local'],
         startDaysAgo: 60,
         dueDaysAhead: 21,
         tasks: [
@@ -126,8 +126,8 @@ const PROJECTS: ProjectSpec[] = [
         description: 'Offline-first rewrite of the mobile client with push notifications.',
         color: '#0ea5e9',
         team: 'product',
-        lead: 'priya@atlas.local',
-        members: ['priya@atlas.local', 'yuki@atlas.local', 'ada@atlas.local', 'marcus@atlas.local'],
+        lead: 'priya@zorqen.local',
+        members: ['priya@zorqen.local', 'yuki@zorqen.local', 'ada@zorqen.local', 'marcus@zorqen.local'],
         startDaysAgo: 45,
         dueDaysAhead: 40,
         tasks: [
@@ -158,8 +158,8 @@ const PROJECTS: ProjectSpec[] = [
         description: 'Positioning, pricing narrative and channels for the v2 launch.',
         color: '#f59e0b',
         team: 'growth',
-        lead: 'ada@atlas.local',
-        members: ['ada@atlas.local', 'marcus@atlas.local', 'yuki@atlas.local'],
+        lead: 'ada@zorqen.local',
+        members: ['ada@zorqen.local', 'marcus@zorqen.local', 'yuki@zorqen.local'],
         startDaysAgo: 30,
         dueDaysAhead: 12,
         visibility: 'private' as const,
@@ -239,6 +239,18 @@ const DESCRIPTIONS = [
 
 async function reset() {
     // Child-first order; every relation also declares onDelete: Cascade.
+    await prisma.taskFieldValue.deleteMany();
+    await prisma.customFieldDefinition.deleteMany();
+    await prisma.timeLog.deleteMany();
+    await prisma.taskDependency.deleteMany();
+    await prisma.shareLink.deleteMany();
+    await prisma.savedFilter.deleteMany();
+    await prisma.automationRule.deleteMany();
+    await prisma.webhookDelivery.deleteMany();
+    await prisma.webhook.deleteMany();
+    await prisma.apiToken.deleteMany();
+    await prisma.otpRecoveryCode.deleteMany();
+    await prisma.cycle.deleteMany();
     await prisma.notification.deleteMany();
     await prisma.activity.deleteMany();
     await prisma.attachment.deleteMany();
@@ -274,7 +286,7 @@ async function main() {
         return;
     }
     if (existing) {
-        console.log('Resetting existing Atlas data…');
+        console.log('Resetting existing ZORQEN data…');
         await reset();
     }
 
@@ -295,7 +307,7 @@ async function main() {
         });
         users.set(spec.email, user.id);
     }
-    const adminId = users.get('ada@atlas.local')!;
+    const adminId = users.get('ada@zorqen.local')!;
 
     const org = await prisma.organization.create({
         data: {
@@ -331,6 +343,7 @@ async function main() {
     const notifications: { userId: string; orgId: string; type: string; title: string; body: string; link: string; createdAt: Date; readAt: Date | null }[] = [];
     let taskCount = 0;
     let commentCount = 0;
+    const projectIds: string[] = [];
 
     for (const spec of PROJECTS) {
         const leadId = users.get(spec.lead)!;
@@ -349,6 +362,7 @@ async function main() {
                 createdAt: hoursAgo(spec.startDaysAgo * 24),
             },
         });
+        projectIds.push(project.id);
 
         const positionBySection = new Map<string, number>();
         const sections = new Map<string, string>();
@@ -619,13 +633,15 @@ async function main() {
     await prisma.invitation.create({
         data: {
             orgId: org.id,
-            email: 'newhire@atlas.local',
+            email: 'newhire@zorqen.local',
             role: 'member',
             tokenHash: inviteToken,
             invitedById: adminId,
             expiresAt: hoursFromNow(7 * 24),
         },
     });
+
+    const parity = await seedFeatureParity({ orgId: org.id, userIds: [...users.values()], adminId, projectIds });
 
     const summary = {
         organization: org.slug,
@@ -635,9 +651,203 @@ async function main() {
         comments: commentCount,
         activities: activities.length,
         notifications: notifications.length,
+        ...parity,
         login: `${USERS[0].email} / ${DEMO_PASSWORD}`,
     };
-    console.log('Seeded Atlas demo data:', summary);
+    console.log('Seeded ZORQEN demo data:', summary);
+}
+
+/**
+ * Demo rows for the feature-parity models (Phases 1-6):
+ * cycles, epics, dependencies, time logs, custom fields, saved filters,
+ * webhooks, tokens, shares, MFA and automations — enough that every new screen
+ * has something honest to render straight after a seed.
+ */
+async function seedFeatureParity(input: { orgId: string; userIds: string[]; adminId: string; projectIds: string[] }) {
+    const { orgId, userIds, adminId, projectIds } = input;
+
+    // --- cycles: two weeks past, two weeks current, two weeks next per project
+    let cycleCount = 0;
+    for (const projectId of projectIds) {
+        const specs = [
+            { name: 'Sprint 12', offsetDays: -14, status: 'closed' },
+            { name: 'Sprint 13', offsetDays: 0, status: 'active' },
+            { name: 'Sprint 14', offsetDays: 14, status: 'draft' },
+        ];
+        for (const [index, spec] of specs.entries()) {
+            const cycle = await prisma.cycle.create({
+                data: {
+                    projectId,
+                    name: spec.name,
+                    number: index + 1,
+                    startsAt: hoursFromNow(spec.offsetDays * 24),
+                    endsAt: hoursFromNow(spec.offsetDays * 24 + 14 * 24),
+                    status: spec.status,
+                    createdAt: hoursFromNow(spec.offsetDays * 24),
+                },
+            });
+            cycleCount += 1;
+            if (spec.status !== 'draft') {
+                const scope = await prisma.task.findMany({
+                    where: { projectId, deletedAt: null, parentTaskId: null },
+                    orderBy: { createdAt: 'desc' },
+                    take: 6,
+                    select: { id: true },
+                });
+                // spread tasks across the two live cycles
+                const half = spec.status === 'active' ? scope.slice(0, 3) : scope.slice(3, 6);
+                for (const t of half) await prisma.task.update({ where: { id: t.id }, data: { cycleId: cycle.id } });
+            }
+        }
+    }
+
+    // --- epics: first two open tasks of each project become epics with children
+    let epicCount = 0;
+    for (const projectId of projectIds) {
+        const candidates = await prisma.task.findMany({
+            where: { projectId, deletedAt: null, parentTaskId: null },
+            orderBy: { createdAt: 'asc' },
+            take: 2,
+            select: { id: true, title: true },
+        });
+        for (const candidate of candidates) {
+            await prisma.task.update({ where: { id: candidate.id }, data: { kind: 'epic' } });
+            epicCount += 1;
+        }
+    }
+
+    // --- dependencies: a couple of FS edges between open tasks of the first project
+    let dependencyCount = 0;
+    const firstProjectTasks = await prisma.task.findMany({
+        where: { projectId: projectIds[0]!, deletedAt: null, status: { in: ['todo', 'in_progress', 'in_review'] } },
+        orderBy: { createdAt: 'asc' },
+        take: 4,
+        select: { id: true },
+    });
+    for (let i = 1; i < Math.min(firstProjectTasks.length, 3); i += 1) {
+        await prisma.taskDependency.create({
+            data: { taskId: firstProjectTasks[i]!.id, dependsOnTaskId: firstProjectTasks[0]!.id, type: 'FS' },
+        });
+        dependencyCount += 1;
+    }
+
+    // --- time logs: finished work gets 1-3 sessions; one timer still running
+    let timeLogCount = 0;
+    const doneTasks = await prisma.task.findMany({
+        where: { deletedAt: null, status: 'done', completedAt: { not: null } },
+        take: 30,
+        select: { id: true, completedAt: true, estimateMins: true },
+    });
+    for (const task of doneTasks) {
+        const sessions = intBetween(1, 2);
+        let left = task.estimateMins ?? intBetween(30, 240);
+        for (let s = 0; s < sessions; s += 1) {
+            const mins = s === sessions - 1 ? left : Math.max(15, Math.round(left / 2));
+            left -= mins;
+            const stoppedAt = task.completedAt!;
+            const startedAt = new Date(stoppedAt.getTime() - (sessions - s) * 6 * 3_600_000);
+            await prisma.timeLog.create({
+                data: {
+                    taskId: task.id,
+                    userId: pick(userIds),
+                    startedAt,
+                    stoppedAt: new Date(startedAt.getTime() + mins * 60_000),
+                    durationMins: mins,
+                    description: chance(0.4) ? 'Focused work session' : null,
+                    createdAt: startedAt,
+                },
+            });
+            timeLogCount += 1;
+        }
+    }
+    const openTask = await prisma.task.findFirst({ where: { deletedAt: null, status: 'in_progress' }, select: { id: true } });
+    if (openTask) {
+        await prisma.timeLog.create({
+            data: { taskId: openTask.id, userId: adminId, startedAt: hoursAgo(1), durationMins: null },
+        });
+        timeLogCount += 1;
+    }
+
+    // --- custom fields: org-wide "Critical?" + project-scoped tier on the first project
+    const fieldCritical = await prisma.customFieldDefinition.create({
+        data: { orgId, name: 'Critical?', type: 'checkbox', createdById: adminId },
+    });
+    const fieldTier = await prisma.customFieldDefinition.create({
+        data: { orgId, projectId: projectIds[0]!, name: 'Release tier', type: 'select', options: JSON.stringify(['alpha', 'beta', 'ga']), createdById: adminId },
+    });
+    const fieldOwner = await prisma.customFieldDefinition.create({
+        data: { orgId, name: 'Business owner', type: 'text', createdById: adminId },
+    });
+    let fieldValueCount = 0;
+    const valueTargets = await prisma.task.findMany({ where: { deletedAt: null }, take: 12, select: { id: true, projectId: true } });
+    for (const task of valueTargets) {
+        await prisma.taskFieldValue.create({ data: { taskId: task.id, fieldId: fieldCritical.id, value: chance(0.3) ? 'true' : 'false' } });
+        await prisma.taskFieldValue.create({ data: { taskId: task.id, fieldId: fieldOwner.id, value: pick(['Marketing', 'Finance', 'Support']) } });
+        if (task.projectId === projectIds[0]) {
+            await prisma.taskFieldValue.create({ data: { taskId: task.id, fieldId: fieldTier.id, value: pick(['alpha', 'beta', 'ga']) } });
+        }
+        fieldValueCount += task.projectId === projectIds[0] ? 3 : 2;
+    }
+
+    // --- saved filters: the classic "my urgent work"
+    await prisma.savedFilter.create({
+        data: { userId: adminId, orgId, name: 'Urgent open work', params: JSON.stringify({ status: ['todo', 'in_progress', 'in_review'], priority: 'urgent' }) },
+    });
+    await prisma.savedFilter.create({
+        data: { userId: adminId, orgId, projectId: projectIds[0], name: 'Relaunch this week', params: JSON.stringify({ dueBefore: 'week' }) },
+    });
+
+    // --- webhook + one delivered and one failed sample
+    const webhook = await prisma.webhook.create({
+        data: { orgId, url: 'https://example.com/zorqen/hooks', secret: randomToken(24), events: JSON.stringify(['task.created', 'task.completed']) },
+    });
+    await prisma.webhookDelivery.create({
+        data: { webhookId: webhook.id, event: 'task.completed', payload: JSON.stringify({ event: 'task.completed', data: { title: 'Sample' } }), status: 'success', attempts: 1, responseCode: 200 },
+    });
+    await prisma.webhookDelivery.create({
+        data: { webhookId: webhook.id, event: 'task.created', payload: JSON.stringify({ event: 'task.created', data: { title: 'Sample' } }), status: 'failed', attempts: 3, responseCode: 500, error: 'upstream 500', nextAttemptAt: hoursFromNow(1) },
+    });
+
+    // --- API token (demo hash; plaintext is not recoverable by design)
+    await prisma.apiToken.create({
+        data: { userId: adminId, name: 'CI pipeline', tokenHash: hashSecret(`zrq_demo_${'ci-token'}`), scopes: JSON.stringify(['read']), expiresAt: hoursFromNow(90 * 24) },
+    });
+
+    // --- share link on the first project's board (token: demo-share-token)
+    await prisma.shareLink.create({
+        data: { orgId, projectId: projectIds[0], tokenHash: hashSecret('demo-share-token'), scope: 'read', expiresAt: hoursFromNow(30 * 24), createdBy: adminId },
+    });
+
+    // --- MFA recovery codes for the demo admin (secret stays unset: enrollment is live flow)
+    for (const code of ['demo-0001', 'demo-0002', 'demo-0003']) {
+        await prisma.otpRecoveryCode.create({ data: { userId: adminId, codeHash: hashSecret(code) } });
+    }
+
+    // --- automation: urgent new tasks notify the lead
+    await prisma.automationRule.create({
+        data: {
+            orgId,
+            projectId: projectIds[0]!,
+            name: 'Flag urgent work',
+            trigger: JSON.stringify({ event: 'task.created', conditions: [{ field: 'priority', equals: 'urgent' }] }),
+            actions: JSON.stringify([{ kind: 'add_label', value: 'Blocking' }, { kind: 'notify', value: 'Urgent task needs a owner' }]),
+            createdAt: hoursAgo(48),
+        },
+    });
+
+    return {
+        cycles: cycleCount,
+        epics: epicCount,
+        dependencies: dependencyCount,
+        timeLogs: timeLogCount,
+        customFields: 3,
+        fieldValues: fieldValueCount,
+        savedFilters: 2,
+        webhooks: 1,
+        apiTokens: 1,
+        shareLinks: 1,
+        automationRules: 1,
+    };
 }
 
 function shuffle<T>(items: T[]): T[] {

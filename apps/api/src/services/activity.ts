@@ -1,6 +1,8 @@
 import { prisma } from '../lib/prisma.js';
 import { logger } from '../lib/logger.js';
 import { emitToOrg, emitToProject, emitToUser } from '../realtime/bus.js';
+import { eventsForActivity, queueEvent } from './webhook.service.js';
+import { evaluateAutomations, isAutomationTrigger } from './automation.service.js';
 import type { ActivityType, NotificationType } from '../domain/enums.js';
 import type { Mail } from './mailer.js';
 import { sendMail } from './mailer.js';
@@ -11,6 +13,11 @@ import { sendMail } from './mailer.js';
  * Every mutation writes an append-only `Activity` row. That table is both the audit
  * trail shown in the task/project feeds and the source for trend analytics, which is
  * why recording is mandatory rather than best-effort.
+ *
+ * It is also the single fan-out point for integrations: one write means webhooks and automation
+ * rules are triggered from exactly one place, so a new mutation cannot forget to notify the world.
+ * The fan-out is awaited — a caller then sees a consistent world — but never allowed to fail the
+ * mutation: an unreachable queue or a broken rule is not the user's problem.
  */
 
 export interface ActivityInput {
@@ -23,6 +30,7 @@ export interface ActivityInput {
 }
 
 export async function recordActivity(input: ActivityInput) {
+    const meta = input.meta ?? {};
     const activity = await prisma.activity.create({
         data: {
             orgId: input.orgId,
@@ -30,7 +38,7 @@ export async function recordActivity(input: ActivityInput) {
             type: input.type,
             projectId: input.projectId ?? null,
             taskId: input.taskId ?? null,
-            meta: JSON.stringify(input.meta ?? {}),
+            meta: JSON.stringify(meta),
         },
         include: { actor: { select: { id: true, firstName: true, lastName: true } } },
     });
@@ -38,7 +46,7 @@ export async function recordActivity(input: ActivityInput) {
     const payload = {
         id: activity.id,
         type: activity.type,
-        meta: input.meta ?? {},
+        meta,
         projectId: activity.projectId,
         taskId: activity.taskId,
         actor: activity.actor,
@@ -46,6 +54,35 @@ export async function recordActivity(input: ActivityInput) {
     };
     if (activity.projectId) emitToProject(activity.projectId, 'activity:created', payload);
     emitToOrg(input.orgId, 'activity:created', payload);
+
+    // Subscribers hear about everything, including changes an automation made.
+    // Rules do not run on their own output: `via` is the recursion guard described in
+    // `services/automation.service.ts`.
+    try {
+        for (const event of eventsForActivity(activity.type as ActivityType, meta)) {
+            await queueEvent({
+                orgId: input.orgId,
+                event,
+                projectId: activity.projectId,
+                taskId: activity.taskId,
+                data: { activityId: activity.id, meta, actor: activity.actor },
+            });
+        }
+        if (activity.projectId && meta.via !== 'automation' && isAutomationTrigger(activity.type)) {
+            await evaluateAutomations({
+                orgId: input.orgId,
+                projectId: activity.projectId,
+                taskId: activity.taskId,
+                type: activity.type,
+                actorId: activity.actorId,
+                meta,
+            });
+        }
+    } catch (error) {
+        logger.error({ err: error, activity: activity.id }, 'integration fan-out failed');
+    }
+
+    logger.debug({ type: activity.type, id: activity.id }, 'activity recorded');
     return activity;
 }
 

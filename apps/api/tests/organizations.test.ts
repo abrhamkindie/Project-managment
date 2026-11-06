@@ -154,7 +154,7 @@ describe("invitations", () => {
 
   it("stores a pending invite for an unknown address and can revoke it", async () => {
     const owner = await signUp();
-    const email = `${unique("newhire")}@orbita.test`;
+    const email = `${unique("newhire")}@zorqen.test`;
 
     await owner.agent
       .post(`/api/organizations/${owner.orgId}/invitations`)
@@ -201,7 +201,7 @@ describe("invitations", () => {
 
   it("accepts a token only for the address it was sent to", async () => {
     const owner = await signUp();
-    const email = `${unique("contractor")}@orbita.test`;
+    const email = `${unique("contractor")}@zorqen.test`;
     const token = await seedInvitation(
       owner.orgId,
       owner.userId,
@@ -253,7 +253,7 @@ describe("invitations", () => {
     const token = await seedInvitation(
       owner.orgId,
       owner.userId,
-      `${unique("someone")}@orbita.test`,
+      `${unique("someone")}@zorqen.test`,
     );
 
     const denied = await wrong.agent
@@ -624,6 +624,71 @@ describe("activity feed", () => {
     expect(row).toBeDefined();
     expect(row?.meta).toEqual({});
   });
+
+  it("narrows the audit log by actor, type and date range", async () => {
+    const owner = await signUp();
+    const teammate = await addMember(owner, "member");
+    const board = await createProject(owner, { name: "Audited" });
+    await createTask(teammate, board.projectId, { title: "By teammate" });
+    await createTask(owner, board.projectId, { title: "By owner" });
+
+    const feed = async (query: string) => {
+      const res = await owner.agent
+        .get(`/api/organizations/${owner.orgId}/activity?limit=200${query}`)
+        .expect(200);
+      return res.body.items as (FeedRow & { actor: { id: string } })[];
+    };
+
+    const everything = await feed("");
+    expect(everything.length).toBeGreaterThan(1);
+
+    // One actor's own footprint: the person, not the workspace, is the unit of accountability.
+    const mine = await feed(`&userId=${teammate.userId}`);
+    expect(mine.length).toBeGreaterThan(0);
+    expect(mine.every((row) => row.actor.id === teammate.userId)).toBe(true);
+
+    const created = await feed("&type=task.created");
+    expect(created.length).toBeGreaterThan(0);
+    expect(created.every((row) => row.type === "task.created")).toBe(true);
+
+    // Filters compose: teammate's task creations and nothing else.
+    const both = await feed(`&userId=${teammate.userId}&type=task.created`);
+    expect(both).toHaveLength(1);
+
+    const ancient = await feed("&from=2000-01-01T00:00:00.000Z");
+    expect(ancient).toHaveLength(everything.length);
+    const before = await feed("&to=2000-01-01T00:00:00.000Z");
+    expect(before).toHaveLength(0);
+
+    // An event name that is not one of ours is a client bug, not an empty answer.
+    await owner.agent
+      .get(`/api/organizations/${owner.orgId}/activity?type=task.teleported`)
+      .expect(400);
+  });
+
+  it("exports the audit log as CSV for an admin and refuses a member", async () => {
+    const owner = await signUp();
+    const teammate = await addMember(owner, "member");
+    const board = await createProject(owner, { name: "Exportable" });
+    await createTask(teammate, board.projectId, { title: "Shipped" });
+
+    const res = await owner.agent
+      .get(`/api/organizations/${owner.orgId}/activity/export`)
+      .expect(200);
+    expect(res.headers["content-type"]).toContain("text/csv");
+    expect(res.headers["content-disposition"]).toContain("attachment");
+
+    const lines = res.text.trim().split("\r\n");
+    expect(lines[0]).toBe("created_at,actor,type,project,task_id,activity_id");
+    // The names are resolved for the file: a bare id is useless to whoever opens it in a sheet.
+    expect(lines.some((line) => line.includes("Exportable") && line.includes("task.created"))).toBe(true);
+    expect(lines.some((line) => line.includes("Test User"))).toBe(true);
+
+    // Admin-only: a member may read their own feed, not hand themselves the workspace's record.
+    await teammate.agent
+      .get(`/api/organizations/${owner.orgId}/activity/export`)
+      .expect(403);
+  });
 });
 
 describe("notification inbox", () => {
@@ -722,7 +787,7 @@ describe("bearer tokens", () => {
       .post("/api/auth/login")
       .send({ email: owner.email, password: PASSWORD })
       .expect(200);
-    const token = cookieValue(login, "orbita_at");
+    const token = cookieValue(login, "zorqen_at");
     expect(token).not.toBe("");
 
     const orgs = await request(app)

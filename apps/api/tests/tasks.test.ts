@@ -584,8 +584,8 @@ describe("listing and filtering", () => {
 
   it("groups open work by project in My tasks", async () => {
     const owner = await signUp();
-    const board = await createProject(owner, { name: "Orbita Web" });
-    const other = await createProject(owner, { name: "Orbita Docs" });
+    const board = await createProject(owner, { name: "ZORQEN Web" });
+    const other = await createProject(owner, { name: "ZORQEN Docs" });
     const kept = await createTask(owner, board.projectId, {
       assigneeIds: [owner.userId],
     });
@@ -600,7 +600,7 @@ describe("listing and filtering", () => {
       .expect(200);
     expect(
       res.body.groups.map((g: { project: { name: string } }) => g.project.name),
-    ).toEqual(expect.arrayContaining(["Orbita Web", "Orbita Docs"]));
+    ).toEqual(expect.arrayContaining(["ZORQEN Web", "ZORQEN Docs"]));
     const ids = res.body.groups.flatMap((g: { tasks: { id: string }[] }) =>
       g.tasks.map((t: { id: string }) => t.id),
     );

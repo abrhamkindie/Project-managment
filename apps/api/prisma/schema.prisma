@@ -1,4 +1,4 @@
-// Atlas data model.
+// ZORQEN data model.
 //
 // Portability rule: this schema is authored once and used for BOTH SQLite (local
 // development / tests) and PostgreSQL (production). To stay portable we deliberately
@@ -34,26 +34,34 @@ model User {
   // JSON string: { emailOnAssign, emailOnComment, emailDigest }
   prefs        String    @default("{}")
   isActive     Boolean   @default(true)
+  /// AES-encrypted TOTP secret (lib/crypto.ts); only meaningful when `mfaEnabled`.
+  mfaSecret    String?
+  mfaEnabled   Boolean   @default(false)
   /// Last moment the server saw this person's realtime tab heartbeat. Presence is computed
   /// from it (see realtime/presence.ts), so it survives a restart and is shared across replicas.
   lastSeenAt   DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  memberships      OrganizationMember[]
-  ownedOrganizations Organization[]   @relation("OrganizationOwner")
-  teamMemberships  TeamMember[]
-  projectMembers   ProjectMember[]
-  assignedTasks    TaskAssignee[]
-  createdTasks     Task[]             @relation("TaskCreator")
-  comments         Comment[]
-  attachments      Attachment[]
-  activities       Activity[]
-  notifications    Notification[]
-  refreshTokens    RefreshToken[]
-  passwordResets   PasswordResetToken[]
-  sentInvitations  Invitation[]
-  editedTasks      Task[]             @relation("TaskEditor")
+  memberships        OrganizationMember[]
+  ownedOrganizations Organization[]       @relation("OrganizationOwner")
+  teamMemberships    TeamMember[]
+  projectMembers     ProjectMember[]
+  assignedTasks      TaskAssignee[]
+  createdTasks       Task[]               @relation("TaskCreator")
+  comments           Comment[]
+  attachments        Attachment[]
+  activities         Activity[]
+  notifications      Notification[]
+  refreshTokens      RefreshToken[]
+  passwordResets     PasswordResetToken[]
+  sentInvitations    Invitation[]
+  editedTasks        Task[]               @relation("TaskEditor")
+  timeLogs           TimeLog[]
+  savedFilters       SavedFilter[]
+  apiTokens          ApiToken[]
+  authoredShares     ShareLink[]          @relation("ShareCreator")
+  recoveryCodes      OtpRecoveryCode[]
 
   @@index([email])
 }
@@ -113,13 +121,18 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  owner     User                 @relation("OrganizationOwner", fields: [ownerId], references: [id])
-  members   OrganizationMember[]
-  teams     Team[]
-  projects  Project[]
-  labels    Label[]
-  invitations Invitation[]
-  activities Activity[]
+  owner           User                    @relation("OrganizationOwner", fields: [ownerId], references: [id])
+  members         OrganizationMember[]
+  teams           Team[]
+  projects        Project[]
+  labels          Label[]
+  invitations     Invitation[]
+  activities      Activity[]
+  webhooks        Webhook[]
+  customFieldDefs CustomFieldDefinition[]
+  savedFilters    SavedFilter[]           @relation("OrgSavedFilter")
+  automationRules AutomationRule[]
+  shareLinks      ShareLink[]
 
   @@index([slug])
 }
@@ -166,17 +179,17 @@ model Team {
   slug      String
   createdAt DateTime @default(now())
 
-  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  members TeamMember[]
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  members  TeamMember[]
   projects Project[]
 
   @@unique([orgId, slug])
 }
 
 model TeamMember {
-  id      String  @id @default(cuid())
-  teamId  String
-  userId  String
+  id        String   @id @default(cuid())
+  teamId    String
+  userId    String
   createdAt DateTime @default(now())
 
   team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
@@ -204,12 +217,17 @@ model Project {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  org       Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  team      Team?         @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  members   ProjectMember[]
-  sections  Section[]
-  tasks     Task[]
-  labels    Label[]
+  org             Organization            @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  team            Team?                   @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  members         ProjectMember[]
+  sections        Section[]
+  tasks           Task[]
+  labels          Label[]
+  cycles          Cycle[]
+  customFieldDefs CustomFieldDefinition[]
+  savedFilters    SavedFilter[]           @relation("ProjectSavedFilter")
+  automationRules AutomationRule[]
+  shareLinks      ShareLink[]
 
   @@index([orgId])
   @@index([orgId, status])
@@ -247,22 +265,22 @@ model Section {
 
 /// Org-wide labels (Asana "tags"); projects may also scope a label.
 model Label {
-  id        String   @id @default(cuid())
+  id        String  @id @default(cuid())
   orgId     String
   projectId String?
   name      String
-  color     String   @default("#0f766e")
+  color     String  @default("#0f766e")
 
-  org   Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  project Project?    @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  tasks TaskLabel[]
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project Project?     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks   TaskLabel[]
 
   @@unique([orgId, name])
 }
 
 model TaskLabel {
-  id     String @id @default(cuid())
-  taskId String
+  id      String @id @default(cuid())
+  taskId  String
   labelId String
 
   task  Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
@@ -276,38 +294,53 @@ model TaskLabel {
 /// status: todo | in_progress | in_review | done | canceled
 /// priority: none | low | medium | high | urgent
 model Task {
-  id           String    @id @default(cuid())
-  projectId    String
-  sectionId    String?
-  parentTaskId String?
-  title        String
-  description  String?
-  status       String    @default("todo")
-  priority     String    @default("none")
-  dueDate      DateTime?
-  startDate    DateTime?
-  estimateMins Int?
-  isMilestone  Boolean   @default(false)
-  position     Float     @default(1000)
-  createdById  String
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id                 String    @id @default(cuid())
+  projectId          String
+  sectionId          String?
+  parentTaskId       String?
+  title              String
+  description        String?
+  status             String    @default("todo")
+  priority           String    @default("none")
+  dueDate            DateTime?
+  startDate          DateTime?
+  estimateMins       Int?
+  isMilestone        Boolean   @default(false)
+  position           Float     @default(1000)
+  createdById        String
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
   /// denormalised for fast analytics; kept in sync by the task service
-  completedAt  DateTime?
-  deletedAt    DateTime?
+  completedAt        DateTime?
+  deletedAt          DateTime?
+  /// task | epic — epics ride the same table and roll up their children (Phase 2)
+  kind               String    @default("task")
+  cycleId            String?
+  /// JSON `RecurrenceRule` ({freq, interval, byDays}); null = not recurring
+  recurrence         String?
+  /// id of the task this recurring instance was cloned from (null on the origin)
+  recurrenceSourceId String?
 
-  project      Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  section      Section?     @relation(fields: [sectionId], references: [id], onDelete: SetNull)
-  parent       Task?        @relation("TaskSubtasks", fields: [parentTaskId], references: [id], onDelete: Cascade)
-  children     Task[]       @relation("TaskSubtasks")
-  createdBy    User         @relation("TaskCreator", fields: [createdById], references: [id])
-  lastEditedBy User?        @relation("TaskEditor", fields: [lastEditedById], references: [id])
+  project        Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  section        Section?         @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  parent         Task?            @relation("TaskSubtasks", fields: [parentTaskId], references: [id], onDelete: Cascade)
+  children       Task[]           @relation("TaskSubtasks")
+  createdBy      User             @relation("TaskCreator", fields: [createdById], references: [id])
+  lastEditedBy   User?            @relation("TaskEditor", fields: [lastEditedById], references: [id])
   lastEditedById String?
-  assignees    TaskAssignee[]
-  comments     Comment[]
-  attachments  Attachment[]
-  labels       TaskLabel[]
-  activities   Activity[]
+  assignees      TaskAssignee[]
+  comments       Comment[]
+  attachments    Attachment[]
+  labels         TaskLabel[]
+  activities     Activity[]
+  cycle          Cycle?           @relation(fields: [cycleId], references: [id], onDelete: SetNull)
+  blocking       TaskDependency[] @relation("TaskDependencyTask")
+  blockedBy      TaskDependency[] @relation("TaskDependencyDependsOn")
+  timeLogs       TimeLog[]
+  fieldValues    TaskFieldValue[]
+  shareLinks     ShareLink[]      @relation("TaskShare")
+  // Partial index for active tasks with due dates (PostgreSQL only)
+  // @@index([dueDate], where: { status: { in: ['todo', 'in_progress', 'in_review'] } })
 
   @@index([projectId, status])
   @@index([projectId, sectionId])
@@ -315,8 +348,7 @@ model Task {
   @@index([dueDate])
   @@index([parentTaskId])
   @@index([completedAt])
-  // Partial index for active tasks with due dates (PostgreSQL only)
-  // @@index([dueDate], where: { status: { in: ['todo', 'in_progress', 'in_review'] } })
+  @@index([cycleId])
 }
 
 model TaskAssignee {
@@ -331,6 +363,60 @@ model TaskAssignee {
 
   @@unique([taskId, userId])
   @@index([userId])
+}
+
+/// Sprint/iteration container (Linear "cycles"). `number` is the per-project sequence.
+/// status: draft | active | closed  (see src/domain/enums.ts)
+model Cycle {
+  id        String   @id @default(cuid())
+  projectId String
+  name      String
+  number    Int
+  startsAt  DateTime
+  endsAt    DateTime
+  status    String   @default("draft")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks   Task[]
+
+  @@unique([projectId, number])
+  @@index([projectId, status])
+}
+
+/// `taskId` cannot start before `dependsOnTaskId` finishes (finish-to-start).
+/// The service layer warns on cycles; the DB stays a plain edge list.
+model TaskDependency {
+  id              String   @id @default(cuid())
+  taskId          String
+  dependsOnTaskId String
+  type            String   @default("FS")
+  createdAt       DateTime @default(now())
+
+  task          Task @relation("TaskDependencyTask", fields: [taskId], references: [id], onDelete: Cascade)
+  dependsOnTask Task @relation("TaskDependencyDependsOn", fields: [dependsOnTaskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, dependsOnTaskId])
+  @@index([dependsOnTaskId])
+}
+
+/// One tracked work interval. Running timers are rows with `stoppedAt = null`.
+model TimeLog {
+  id           String    @id @default(cuid())
+  taskId       String
+  userId       String
+  startedAt    DateTime
+  stoppedAt    DateTime?
+  durationMins Int?
+  description  String?
+  createdAt    DateTime  @default(now())
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([userId, startedAt])
 }
 
 model Comment {
@@ -408,4 +494,173 @@ model Notification {
 
   @@index([userId, readAt])
   @@index([userId, createdAt])
+}
+
+// ---------------------------------------------------------- custom fields (Phase 6)
+
+/// type: text | number | date | select | checkbox. `options` is a JSON string array
+/// (select only). Org-wide when `projectId` is null, project-scoped otherwise.
+model CustomFieldDefinition {
+  id        String   @id @default(cuid())
+  orgId     String
+  projectId String?
+  name      String
+  type      String
+  options   String   @default("[]")
+  createdAt DateTime @default(now())
+
+  org         Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project     Project?         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  // plain audit scalar, no relation: one publisher per definition is all we ever read back
+  createdById String?
+  values      TaskFieldValue[]
+
+  @@unique([orgId, projectId, name])
+}
+
+/// One value of one field on one task. `value` is a JSON scalar string
+/// (number/date/checkbox ride the same column — portability rule).
+model TaskFieldValue {
+  id      String @id @default(cuid())
+  taskId  String
+  fieldId String
+  value   String
+
+  task  Task                  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  field CustomFieldDefinition @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, fieldId])
+}
+
+// ------------------------------------------------------------ saved views (Phase 3)
+
+/// `params` is a JSON string matching `taskListQuerySchema` minus pagination.
+model SavedFilter {
+  id        String   @id @default(cuid())
+  userId    String
+  orgId     String
+  projectId String?
+  name      String
+  params    String
+  createdAt DateTime @default(now())
+
+  user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  org     Organization @relation("OrgSavedFilter", fields: [orgId], references: [id], onDelete: Cascade)
+  project Project?     @relation("ProjectSavedFilter", fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([userId, orgId])
+}
+
+// -------------------------------------------------------------- integrations (Phase 5)
+
+/// Outbound webhook. `secret` signs deliveries (HMAC-SHA256) and is only ever shown at
+/// creation; `events` is a JSON string array of `WEBHOOK_EVENTS` values.
+model Webhook {
+  id        String   @id @default(cuid())
+  orgId     String
+  url       String
+  secret    String
+  events    String   @default("[]")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  org        Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  deliveries WebhookDelivery[]
+
+  @@index([orgId, active])
+}
+
+/// One attempt outcome per webhook firing; retried by the scheduler sweep.
+model WebhookDelivery {
+  id            String   @id @default(cuid())
+  webhookId     String
+  event         String
+  payload       String
+  status        String   @default("pending")
+  attempts      Int      @default(0)
+  responseCode  Int?
+  error         String?
+  nextAttemptAt DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  webhook Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@index([webhookId, status])
+  @@index([status, nextAttemptAt])
+}
+
+/// Personal access token. Only the hash is stored (`lib/crypto.ts`), like refresh tokens.
+/// `scopes` is a JSON string array of API_TOKEN_SCOPES.
+model ApiToken {
+  id         String    @id @default(cuid())
+  userId     String
+  name       String
+  tokenHash  String    @unique
+  scopes     String    @default("[\"read\"]")
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// Read-only public share. Only the hash of the URL token is stored; exactly one of
+/// projectId/taskId is set by the service layer.
+model ShareLink {
+  id        String    @id @default(cuid())
+  orgId     String
+  projectId String?
+  taskId    String?
+  tokenHash String    @unique
+  scope     String    @default("read")
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdBy String
+  createdAt DateTime  @default(now())
+
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project Project?     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task    Task?        @relation("TaskShare", fields: [taskId], references: [id], onDelete: Cascade)
+  author  User         @relation("ShareCreator", fields: [createdBy], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([taskId])
+}
+
+/// One-time backup codes for TOTP login; stored hashed like tokens.
+model OtpRecoveryCode {
+  id        String    @id @default(cuid())
+  userId    String
+  codeHash  String
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ------------------------------------------------------------- automations (Phase 5)
+
+/// `trigger` is JSON {event, conditions?}; `actions` is JSON AutomationAction[].
+/// Evaluated in the activity write path — fixed primitives, no free code.
+model AutomationRule {
+  id        String   @id @default(cuid())
+  orgId     String
+  projectId String
+  name      String
+  trigger   String
+  actions   String   @default("[]")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, active])
 }

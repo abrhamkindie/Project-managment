@@ -18,6 +18,12 @@ declare global {
             parsed?: Partial<Record<'body' | 'query' | 'params', unknown>>;
             /** Organization the route is scoped to (populated by `attachOrganization`). */
             org?: { id: string; role: OrgRole };
+            /**
+             * Present when the caller authenticated with a personal access token instead of a
+             * browser session. Routes use it to keep cookie-only endpoints (password change,
+             * token management) off the token surface.
+             */
+            apiToken?: { id: string; scopes: string[] };
         }
     }
 }

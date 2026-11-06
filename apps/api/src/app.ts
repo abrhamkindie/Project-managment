@@ -38,7 +38,7 @@ export function createApp(): Application {
       origin: (origin, callback) => {
         // Same-origin requests (curl, health checks, the proxy) carry no Origin header.
         if (!origin || env.corsOrigins.includes(origin))
-          return callback(null, true);
+          {return callback(null, true);}
         return callback(new Error(`Origin ${origin} not allowed by CORS`));
       },
       credentials: true,

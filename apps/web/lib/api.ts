@@ -6,13 +6,15 @@ import type { Page } from './types';
  * Rules the whole app depends on:
  * - the browser always talks to its own origin (`/api/...`), which Next proxies to the API,
  *   so session cookies are first-party and no CORS preflight is involved;
- * - a 401 triggers exactly one `POST /auth/refresh` and a single retry. Rotating refresh
- *   tokens make a second concurrent refresh invalid, so parallel 401s share one promise;
+ * - a 401 triggers exactly one `POST /auth/refresh` and a single retry, in the browser only.
+ *   Rotating refresh tokens makes a second concurrent refresh invalid, so parallel 401s share one
+ *   promise — and a server-side rotation would spend a token whose replacement the browser never
+ *   receives;
  * - failures are always `ApiError`, carrying the server's `code`/`details` so forms can
  *   show field-level messages instead of guessing.
  */
 
-const PREFIX = process.env.NEXT_PUBLIC_API_PREFIX || '/api';
+const PREFIX = process.env.NEXT_PUBLIC_API_PREFIX || '/api/v1';
 const SERVER_URL = process.env.API_SERVER_URL || 'http://127.0.0.1:4000';
 
 export class ApiError extends Error {
@@ -149,7 +151,9 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
             error instanceof ApiError &&
             error.isUnauthorized &&
             options.retryOn401 !== false &&
-            !path.startsWith('/auth/');
+            // Only a browser may rotate: the new refresh token arrives in `Set-Cookie`, and a
+            // server-side fetch would throw that answer away while spending the old one.
+            isBrowser;
         if (!retryable) throw error;
 
         // Expired access token: refresh once, then replay the original call.
@@ -170,6 +174,14 @@ export const api = {
 /** Download links are plain hrefs: the browser sends the session cookie itself. */
 export function absoluteUrl(path: string): string {
     return isBrowser ? path : `${SERVER_URL}${path}`;
+}
+
+/**
+ * A prefixed URL for an endpoint the browser reaches by navigation instead of by `fetch`: an SSO
+ * start, a CSV download. Plain hrefs keep the cookie first-party and need no JavaScript at all.
+ */
+export function apiHref(path: string): string {
+    return `${PREFIX}${path}`;
 }
 
 /** Convenience for endpoints that return a bare array instead of a page envelope. */

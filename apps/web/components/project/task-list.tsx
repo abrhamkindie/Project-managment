@@ -20,9 +20,10 @@ import {
     dueTone,
 } from '~/lib/format';
 import { useUpdateTask } from '~/lib/hooks';
-import type { BoardDto, TaskCardDto } from '~/lib/types';
+import type { BoardDto, CustomFieldDto, TaskCardDto } from '~/lib/types';
 import { AvatarStack } from '../ui';
 import { QuickAdd } from './quick-add';
+import { fieldValueOf, useCustomFieldList } from './fields';
 
 /**
  * List view of a project.
@@ -34,6 +35,10 @@ import { QuickAdd } from './quick-add';
  * The section header carries the status meaning (list is grouped by column, and columns map to
  * statuses on the board), so per-row status dots are dropped. Priority tints the left border
  * instead of consuming a chip slot.
+ *
+ * `columnIds` turns custom fields into real columns: each one gets a fixed-width cell at the right of
+ * every row. They are opt-in because a row is one line, and six fields would push the title off the
+ * screen — which is exactly the trade the columns menu is there to let a reader make.
  */
 export function TaskList({
     orgId,
@@ -46,6 +51,7 @@ export function TaskList({
     selectedIds,
     onToggleSelect,
     onToggleMany,
+    columnIds = [],
 }: {
     orgId: string;
     projectId: string;
@@ -59,7 +65,16 @@ export function TaskList({
     selectedIds?: Set<string>;
     onToggleSelect?: (taskId: string) => void;
     onToggleMany?: (taskIds: string[], selected: boolean) => void;
+    /** Custom-field ids to show as columns, in the order the picker listed them. */
+    columnIds?: string[];
 }) {
+    const definitions = useCustomFieldList();
+    // Definition order, not the order they were ticked: a stable column order survives re-ticking.
+    const columns = useMemo(
+        () => definitions.filter((field) => columnIds.includes(field.id)),
+        [definitions, columnIds],
+    );
+
     const groups = useMemo(() => {
         const out = board.sections.map((section) => ({
             key: section.id,
@@ -90,6 +105,7 @@ export function TaskList({
                     selectedIds={selectedIds}
                     onToggleSelect={onToggleSelect}
                     onToggleMany={onToggleMany}
+                    columns={columns}
                 />
             ))}
         </div>
@@ -129,6 +145,7 @@ function SectionGroup({
     selectedIds,
     onToggleSelect,
     onToggleMany,
+    columns,
 }: {
     group: { key: string; name: string; tasks: TaskCardDto[]; isDone: boolean; total: number; truncated: boolean };
     orgId: string;
@@ -140,6 +157,7 @@ function SectionGroup({
     selectedIds?: Set<string>;
     onToggleSelect?: (taskId: string) => void;
     onToggleMany?: (taskIds: string[], selected: boolean) => void;
+    columns: CustomFieldDto[];
 }) {
     const [collapsed, setCollapsed] = useState(false);
     const roots = useMemo(() => buildTree(group.tasks), [group.tasks]);
@@ -212,6 +230,7 @@ function SectionGroup({
                                         selectable={selectable}
                                         selectedIds={selectedIds}
                                         onToggleSelect={onToggleSelect}
+                                        columns={columns}
                                     />
                                 ))}
                             </ul>
@@ -247,6 +266,7 @@ function TaskTreeNode({
     selectable,
     selectedIds,
     onToggleSelect,
+    columns,
 }: {
     node: TreeNode;
     depth: number;
@@ -256,6 +276,7 @@ function TaskTreeNode({
     selectable: boolean;
     selectedIds?: Set<string>;
     onToggleSelect?: (taskId: string) => void;
+    columns: CustomFieldDto[];
 }) {
     const hasChildren = node.children.length > 0;
     // Auto-expand when a descendant is selected, so a deep-link to a subtask reveals its trail.
@@ -285,6 +306,7 @@ function TaskTreeNode({
                 selectable={selectable}
                 checked={selectedIds?.has(node.task.id) ?? false}
                 onToggleSelect={onToggleSelect}
+                columns={columns}
             />
 
             {hasChildren && expanded ? (
@@ -300,6 +322,7 @@ function TaskTreeNode({
                             selectable={selectable}
                             selectedIds={selectedIds}
                             onToggleSelect={onToggleSelect}
+                            columns={columns}
                         />
                     ))}
                 </ul>
@@ -330,6 +353,7 @@ function TaskRow({
     selectable = false,
     checked = false,
     onToggleSelect,
+    columns = [],
 }: {
     task: TaskCardDto;
     canEdit: boolean;
@@ -343,6 +367,8 @@ function TaskRow({
     selectable?: boolean;
     checked?: boolean;
     onToggleSelect?: (taskId: string) => void;
+    /** Custom fields drawn as columns at the right of the row. */
+    columns?: CustomFieldDto[];
 }) {
     const update = useUpdateTask();
     const tone = dueTone(task.dueDate, task.status, task.isOverdue);
@@ -467,6 +493,21 @@ function TaskRow({
                         {dueLabel(task.dueDate)}
                     </span>
                 ) : null}
+                {/* Field columns, each naming itself: a row this dense has no header line to put a
+                    title in, and an unlabelled value is a riddle rather than a column. */}
+                {columns.map((field) => {
+                    const text = fieldValueOf(task, field);
+                    return (
+                        <span
+                            key={field.id}
+                            className="hidden w-32 shrink-0 truncate text-right text-xs lg:inline"
+                            title={`${field.name}: ${text || 'not set'}`}
+                        >
+                            <span className="text-ink-faint">{field.name}: </span>
+                            <span className={text ? 'text-ink-soft' : 'italic text-ink-faint'}>{text || '—'}</span>
+                        </span>
+                    );
+                })}
                 <AvatarStack users={task.assignees} max={2} />
             </div>
         </div>

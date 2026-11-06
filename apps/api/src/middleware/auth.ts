@@ -3,6 +3,8 @@ import { prisma } from '../lib/prisma.js';
 import { Unauthorized, Forbidden } from '../domain/errors.js';
 import { tokenFromAuthorizationHeader, verifyAccessToken } from '../lib/tokens.js';
 import { ACCESS_COOKIE } from '../services/session.js';
+import { API_TOKEN_PREFIX } from '../domain/enums.js';
+import { assertScope, resolveApiToken } from '../services/api-token.service.js';
 import { atLeastOrgRole, type Access } from '../domain/permissions.js';
 import type { OrgRole } from '../domain/enums.js';
 import type { AuthUser } from '../types/express.js';
@@ -14,11 +16,27 @@ function extractToken(req: Request): string | null {
     return fromCookie ?? null;
 }
 
-/** Verify the access token and hydrate `req.user`. */
+/**
+ * Verify the access token (or personal access token) and hydrate `req.user`.
+ *
+ * The two credential types share this middleware so every downstream route keeps asking one
+ * question — "who is calling" — and never has to know how they proved it. A token additionally
+ * carries its scopes, which are enforced here by HTTP method rather than per route.
+ */
 export const authenticate: RequestHandler = async (req, _res, next) => {
     try {
         const token = extractToken(req);
         if (!token) throw new Unauthorized();
+
+        if (token.startsWith(API_TOKEN_PREFIX)) {
+            const identity = await resolveApiToken(token);
+            const user = identity.token.user;
+            req.user = { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName };
+            req.apiToken = { id: identity.token.id, scopes: identity.scopes };
+            assertScope(identity.scopes, req.method);
+            return next();
+        }
+
         const claims = verifyAccessToken(token);
         const user = await prisma.user.findUnique({
             where: { id: claims.sub },
@@ -32,6 +50,21 @@ export const authenticate: RequestHandler = async (req, _res, next) => {
     }
 };
 
+/**
+ * Reject token-authenticated callers.
+ *
+ * Guarding the endpoints that mint or revoke credentials keeps a leaked read/write token from
+ * promoting itself into a permanent one; the same rule protects password changes, where a stale
+ * token must not be able to lock its owner out of the account.
+ */
+export const requireSession: RequestHandler = (req, _res, next) => {
+    if (req.apiToken) {
+        return next(new Forbidden('Sign in from the web app to manage credentials'));
+    }
+    return next();
+};
+
+/** Resolve the caller or throw; every route starts here. */
 export function currentUser(req: Request): AuthUser {
     if (!req.user) throw new Unauthorized();
     return req.user;

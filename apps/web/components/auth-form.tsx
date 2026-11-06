@@ -4,9 +4,10 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { z } from 'zod';
-import { ApiError } from '~/lib/api';
-import { restoreSession, useGoogleLogin, useLogin, useRegister } from '~/lib/hooks';
+import { ApiError, apiHref } from '~/lib/api';
+import { restoreSession, useGoogleLogin, useLogin, useMfaVerify, useRegister, useSsoProviders } from '~/lib/hooks';
 import { homeFor } from '~/lib/paths';
+import { isMfaChallenge } from '~/lib/types';
 import { Button, ErrorNote, Field, Input } from './ui';
 
 /** Google Identity Services global types (loaded via script tag). */
@@ -29,6 +30,11 @@ declare global {
  * Validation is mirrored here from the API schema (`apps/api/src/domain/schemas.ts`) purely so
  * a typo is caught before a round trip — the server stays the authority, and its field errors
  * are mapped into the same place as the local ones.
+ *
+ * Two-factor turns this into a two-step flow: a password that passes returns either a session
+ * (done) or a challenge, and the challenge is only good at the code step below. The OIDC callback
+ * hands its challenge back through the query string, because a browser redirect is the only
+ * channel that flow has.
  */
 
 const Email = z.string().trim().toLowerCase().min(1, 'Enter your email address').email('Enter a valid email address');
@@ -46,19 +52,37 @@ const registerSchema = z.object({
 
 type FormErrors = Record<string, string>;
 
-export function AuthForm({ mode, redirectTo }: { mode: 'login' | 'register'; redirectTo?: string }) {
+export function AuthForm({
+    mode,
+    redirectTo,
+    initialChallenge,
+    ssoError = false,
+}: {
+    mode: 'login' | 'register';
+    redirectTo?: string;
+    /** A challenge from the OIDC callback (`?mfa=…`): start on the code step, not the password one. */
+    initialChallenge?: string;
+    /** The IdP sent no usable code; say so once, without exposing which check failed. */
+    ssoError?: boolean;
+}) {
     const router = useRouter();
     const login = useLogin(redirectTo);
     const register = useRegister(redirectTo);
     const googleLogin = useGoogleLogin(redirectTo);
+    const providers = useSsoProviders();
     const mutation = mode === 'login' ? login : register;
 
     const [values, setValues] = useState({ firstName: '', lastName: '', email: '', password: '', organizationName: '' });
     const [errors, setErrors] = useState<FormErrors>({});
     const [googleReady, setGoogleReady] = useState(false);
+    const [challenge, setChallenge] = useState<string | null>(initialChallenge ?? null);
     const googleBtnRef = useRef<HTMLDivElement>(null);
 
-    const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+    // Which buttons the API will actually honour, read from the provider registry rather than a
+    // build-time env: a web-only client id would render a button whose route answers 400.
+    const google = providers.data?.find((entry) => entry.kind === 'token' && entry.clientId);
+    const redirectProviders = (providers.data ?? []).filter((entry) => entry.kind === 'redirect');
+    const googleClientId = google?.clientId ?? undefined;
 
     // Already signed in (or restorable): do not show a form that cannot be used.
     useEffect(() => {
@@ -141,7 +165,9 @@ export function AuthForm({ mode, redirectTo }: { mode: 'login' | 'register'; red
         try {
             // `organizationName` is optional on the API too, so an empty box is left out rather than sent as "".
             if (mode === 'login') {
-                await login.mutateAsync({ email: values.email, password: values.password });
+                const result = await login.mutateAsync({ email: values.email, password: values.password });
+                // The hook only redirects when it got a session; a challenge means ask for the code.
+                if (isMfaChallenge(result)) setChallenge(result.challenge);
             } else {
                 await register.mutateAsync({
                     firstName: values.firstName,
@@ -160,6 +186,20 @@ export function AuthForm({ mode, redirectTo }: { mode: 'login' | 'register'; red
     const serverErrors = mutation.error instanceof ApiError ? mutation.error.fieldErrors : {};
     const errorOf = (key: string) => errors[key] || serverErrors[key];
 
+    // Every hook above runs on both steps; this return is the first thing after them, so the
+    // challenge step cannot leave a stale password field behind for a second submit to spend.
+    if (challenge) {
+        return (
+            <div className="space-y-6">
+                <header className="space-y-1">
+                    <h2 className="text-2xl font-semibold text-ink">Confirm it is you</h2>
+                    <p className="text-sm text-ink-muted">Enter the six-digit code from your authenticator app, or one of your backup codes.</p>
+                </header>
+                <MfaCodeStep challenge={challenge} redirectTo={redirectTo} onBack={() => setChallenge(null)} />
+            </div>
+        );
+    }
+
     return (
         <div className="space-y-6">
             <header className="space-y-1">
@@ -168,6 +208,12 @@ export function AuthForm({ mode, redirectTo }: { mode: 'login' | 'register'; red
                     {mode === 'login' ? 'Sign in to your workspace.' : 'Set up a workspace and start assigning work in seconds.'}
                 </p>
             </header>
+
+            {ssoError ? (
+                <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    That sign-in did not finish. Try again, or use your email and password.
+                </p>
+            ) : null}
 
             <form onSubmit={submit} className="space-y-4" noValidate>
                 {mode === 'register' ? (
@@ -242,6 +288,22 @@ export function AuthForm({ mode, redirectTo }: { mode: 'login' | 'register'; red
                 </>
             ) : null}
 
+            {/* Redirect providers are one link each: `/auth/oidc/start` builds the state and sends
+                the browser to the IdP, so there is nothing to initialise here. */}
+            {redirectProviders.length ? (
+                <div className="space-y-2">
+                    {redirectProviders.map((provider) => (
+                        <a
+                            key={provider.name}
+                            href={apiHref(`/auth/oidc/start?returnTo=${encodeURIComponent(redirectTo ?? '/')}`)}
+                            className="btn btn-secondary w-full border border-line"
+                        >
+                            {`Continue with ${provider.label}`}
+                        </a>
+                    ))}
+                </div>
+            ) : null}
+
             <p className="text-sm text-ink-muted">
                 {mode === 'login' ? (
                     <>
@@ -260,5 +322,50 @@ export function AuthForm({ mode, redirectTo }: { mode: 'login' | 'register'; red
                 )}
             </p>
         </div>
+    );
+}
+
+/**
+ * The second factor.
+ *
+ * A wrong code comes back from a throttled endpoint as a plain 401, so nothing is parsed out of
+ * the message and the field simply waits for another try. `onBack` is the way out of an expired
+ * challenge: it goes back to the password step — which still holds what was typed — instead of
+ * resubmitting a token the server has already stopped accepting.
+ */
+function MfaCodeStep({ challenge, redirectTo, onBack }: { challenge: string; redirectTo?: string; onBack: () => void }) {
+    const verify = useMfaVerify(redirectTo);
+    const [code, setCode] = useState('');
+
+    return (
+        <form
+            className="space-y-4"
+            onSubmit={(event) => {
+                event.preventDefault();
+                verify.mutate({ challenge, code: code.trim() });
+            }}
+        >
+            <Field label="Code" hint="Six digits from the app, or a backup code if you have lost it.">
+                <Input
+                    name="code"
+                    autoComplete="one-time-code"
+                    autoFocus
+                    value={code}
+                    onChange={(event) => setCode(event.target.value)}
+                    maxLength={40}
+                    placeholder="123456"
+                />
+            </Field>
+
+            <ErrorNote error={verify.error} />
+
+            <Button type="submit" variant="primary" loading={verify.isPending} disabled={code.trim().length < 6} className="w-full">
+                Verify and sign in
+            </Button>
+
+            <button type="button" onClick={onBack} className="link text-xs">
+                Use a different account
+            </button>
+        </form>
     );
 }

@@ -22,7 +22,7 @@ import {
 export type Theme = "light" | "dark" | "system";
 export type Resolved = "light" | "dark";
 
-const STORAGE_KEY = "orbita-theme";
+const STORAGE_KEY = "zorqen-theme";
 
 const matchesDark = () =>
   typeof window !== "undefined" &&

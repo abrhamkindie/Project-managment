@@ -25,14 +25,21 @@ import { isManagerPlus, isWorkspaceAdmin } from "~/lib/roles";
 import type { NotificationPrefs, OrgRole, Session } from "~/lib/types";
 import { Avatar, Button, ErrorNote, Field, Input, Select, Spinner } from "./ui";
 import { Page, PageHeader, Section } from "./page-shell";
+import { ApiTokensPanel } from "./settings/tokens";
+import { AuditPanel } from "./settings/audit";
+import { CustomFieldsPanel } from "./settings/fields";
+import { SharesPanel } from "./settings/shares";
+import { TwoFactorPanel } from "./settings/two-factor";
+import { WebhooksPanel } from "./settings/webhooks";
 
 /**
  * Account and workspace settings.
  *
  * One screen because there is exactly one of each thing to change: the profile belongs to the
- * user, the notification policy belongs to the user, and a workspace's name and label library
- * belong to the workspace they are an admin of. Everything is rendered from the session
- * envelope, so the page never has to guess which workspace is "current".
+ * user, the notification policy belongs to the user, and a workspace's name, label library,
+ * integrations and audit trail belong to the workspace they are an admin of. Everything is
+ * rendered from the session envelope, so the page never has to guess which workspace is
+ * "current" — and each panel re-checks the role it needs, because the API is the authority.
  */
 export function SettingsView({ session }: { session: Session }) {
   return (
@@ -54,7 +61,7 @@ export function SettingsView({ session }: { session: Session }) {
       <Page>
         <PageHeader
           title="Settings"
-          description="Your profile, how Orbita reaches you, and the workspaces you administer."
+          description="Your profile, how ZORQEN reaches you, and the workspaces you administer."
         />
 
         <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
@@ -62,6 +69,12 @@ export function SettingsView({ session }: { session: Session }) {
             <ProfileSection session={session} />
             <NotificationSection />
             <PasswordSection />
+            <Section title="Credentials">
+              <div className="space-y-4">
+                <TwoFactorPanel />
+                <ApiTokensPanel />
+              </div>
+            </Section>
             <WorkspaceSections session={session} />
           </div>
 
@@ -164,22 +177,22 @@ const PREF_COPY: {
   label: string;
   hint: string;
 }[] = [
-  {
-    key: "emailOnAssign",
-    label: "Email me when I am assigned work",
-    hint: "An in-app notification always arrives; this adds an email on top.",
-  },
-  {
-    key: "emailOnComment",
-    label: "Email me about comments",
-    hint: "On tasks you created, are assigned to, or have commented on.",
-  },
-  {
-    key: "emailDigest",
-    label: "Send me a daily due-date digest",
-    hint: "One email a day with what is overdue and what is close.",
-  },
-];
+    {
+      key: "emailOnAssign",
+      label: "Email me when I am assigned work",
+      hint: "An in-app notification always arrives; this adds an email on top.",
+    },
+    {
+      key: "emailOnComment",
+      label: "Email me about comments",
+      hint: "On tasks you created, are assigned to, or have commented on.",
+    },
+    {
+      key: "emailDigest",
+      label: "Send me a daily due-date digest",
+      hint: "One email a day with what is overdue and what is close.",
+    },
+  ];
 
 function NotificationSection() {
   const preferences = usePreferences();
@@ -362,29 +375,29 @@ function SignOutSection() {
 // ------------------------------------------------------------------------ workspaces
 
 /**
- * Per-workspace administration, rendered only where the viewer is actually an admin.
+ * Per-workspace administration and integration panels.
  *
- * A workspace card is the natural place for its name and its label library: both are shared by
- * every project in it, and neither belongs to a single project's settings.
+ * Every workspace the person belongs to is listed, not only the ones they can rename: share links
+ * and the audit feed are member-readable, so hiding the card would hide a way to revoke a link
+ * somebody created for them. Everything an admin owns is gated inside `WorkspaceSettings`, the
+ * same way the API gates it.
  */
 function WorkspaceSections({ session }: { session: Session }) {
   return (
     <>
-      {session.organizations
-        .filter((org) => isManagerPlus(org.role))
-        .map((org) => (
-          <Section
-            key={org.id}
-            title={org.name}
-            action={
-              <Link href={workspacePath(org.slug)} className="link text-xs">
-                {org.slug}
-              </Link>
-            }
-          >
-            <WorkspaceSettings orgId={org.id} name={org.name} role={org.role} />
-          </Section>
-        ))}
+      {session.organizations.map((org) => (
+        <Section
+          key={org.id}
+          title={org.name}
+          action={
+            <Link href={workspacePath(org.slug)} className="link text-xs">
+              {org.slug}
+            </Link>
+          }
+        >
+          <WorkspaceSettings orgId={org.id} name={org.name} role={org.role} />
+        </Section>
+      ))}
     </>
   );
 }
@@ -518,6 +531,16 @@ function WorkspaceSettings({
           </Button>
         </form>
       </div>
+
+      {/* Outbound automation is a server-side POST to a URL the workspace chooses, so it stays
+          with the role that can also read the delivery log. */}
+      {canRename ? <WebhooksPanel orgId={orgId} /> : null}
+
+      <CustomFieldsPanel orgId={orgId} role={role} />
+
+      <SharesPanel orgId={orgId} />
+
+      <AuditPanel orgId={orgId} admin={canRename} />
     </div>
   );
 }

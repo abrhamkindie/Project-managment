@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * End-to-end smoke check against a RUNNING Atlas API (`npm run dev`).
+ * End-to-end smoke check against a RUNNING ZORQEN API (`npm run dev`).
  *
  * It exercises the same paths the browser will use: cookie login, board read,
  * task create -> move -> comment -> complete, my-tasks, analytics, notifications,
@@ -10,7 +10,7 @@
  * Requires a seeded database (`npm run db:seed`) unless credentials are passed in.
  */
 const BASE = (process.argv[2] ?? 'http://127.0.0.1:4000').replace(/\/$/, '');
-const CREDENTIALS = process.argv[3] ? [process.argv[3], process.argv[4]] : ['ada@atlas.local', 'Passw0rd!'];
+const CREDENTIALS = process.argv[3] ? [process.argv[3], process.argv[4]] : ['ada@zorqen.local', 'Passw0rd!'];
 
 let cookie = '';
 let failures = 0;

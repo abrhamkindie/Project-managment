@@ -1,4 +1,4 @@
-import type { BoardDto, TaskCardDto } from './types';
+import type { BoardDto, TaskCardDto, TaskFieldValueDto } from './types';
 
 /**
  * Board cache surgery, shared by the realtime provider and by task mutations.
@@ -46,6 +46,22 @@ export function removeTaskFromBoard(board: BoardDto, taskId: string): BoardDto {
                 : section,
         ),
         unassigned: board.unassigned.filter((task) => task.id !== taskId),
+    };
+}
+
+/**
+ * Writes one card's custom-field values, leaving everything else exactly as it was.
+ *
+ * A field save answers with the task's value set rather than with a card, so the usual
+ * merge-from-a-card path does not apply here — and a full card would be the wrong thing to send
+ * back anyway: nothing about status, position or the ordinal changed.
+ */
+export function setTaskFieldsInBoard(board: BoardDto, taskId: string, fields: TaskFieldValueDto[]): BoardDto {
+    const swap = (task: TaskCardDto): TaskCardDto => (task.id === taskId ? { ...task, fields } : task);
+    return {
+        ...board,
+        sections: board.sections.map((section) => ({ ...section, tasks: section.tasks.map(swap) })),
+        unassigned: board.unassigned.map(swap),
     };
 }
 

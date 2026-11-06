@@ -22,7 +22,7 @@ import { hashSecret, randomToken } from "../src/lib/crypto.js";
 
 describe("registration", () => {
   it("creates a user, a first organization and an httpOnly cookie pair", async () => {
-    const email = `${unique("reg")}@orbita.test`;
+    const email = `${unique("reg")}@zorqen.test`;
     const res = await request(app)
       .post("/api/auth/register")
       .send({
@@ -49,12 +49,12 @@ describe("registration", () => {
 
     const cookies = cookieHeaders(res);
     expect(
-      cookies.some((c) => c.startsWith("orbita_at=") && c.includes("HttpOnly")),
+      cookies.some((c) => c.startsWith("zorqen_at=") && c.includes("HttpOnly")),
     ).toBe(true);
     expect(
       cookies.some(
         (c) =>
-          c.startsWith("orbita_rt=") &&
+          c.startsWith("zorqen_rt=") &&
           c.includes("HttpOnly") &&
           c.includes("SameSite=Lax"),
       ),
@@ -80,7 +80,7 @@ describe("registration", () => {
     const weak = await request(app)
       .post("/api/auth/register")
       .send({
-        email: `${unique("weak")}@orbita.test`,
+        email: `${unique("weak")}@zorqen.test`,
         password: "short",
         firstName: "x",
         lastName: "y",
@@ -105,7 +105,7 @@ describe("sign in and out", () => {
     expect(bad.body.error.code).toBe("unauthorized");
     const missing = await request(app)
       .post("/api/auth/login")
-      .send({ email: "ghost@orbita.test", password: PASSWORD })
+      .send({ email: "ghost@zorqen.test", password: PASSWORD })
       .expect(401);
     expect(missing.body.error.message).toBe(bad.body.error.message); // no user enumeration
   });
@@ -127,7 +127,7 @@ describe("sign in and out", () => {
       .expect(200);
     await request(app)
       .get("/api/auth/me")
-      .set("authorization", `Bearer ${cookieValue(login, "orbita_at")}`)
+      .set("authorization", `Bearer ${cookieValue(login, "zorqen_at")}`)
       .expect(200);
   });
 
@@ -202,7 +202,7 @@ describe("refresh token rotation", () => {
       .send({ email, password: PASSWORD })
       .expect(200);
     const userId = login.body.user.id as string;
-    const stolen = `orbita_rt=${cookieValue(login, "orbita_rt")}`;
+    const stolen = `zorqen_rt=${cookieValue(login, "zorqen_rt")}`;
 
     await request(app)
       .post("/api/auth/refresh")
@@ -253,7 +253,7 @@ describe("password recovery", () => {
 
     const unknown = await request(app)
       .post("/api/auth/forgot-password")
-      .send({ email: `${unique("ghost")}@orbita.test` })
+      .send({ email: `${unique("ghost")}@zorqen.test` })
       .expect(200);
     const known = await request(app)
       .post("/api/auth/forgot-password")
@@ -293,7 +293,7 @@ describe("password recovery", () => {
     // endpoint cannot be used to find out which of the two an address is.
     const googleOnly = await prisma.user.create({
       data: {
-        email: `${unique("googleonly")}@orbita.test`,
+        email: `${unique("googleonly")}@zorqen.test`,
         firstName: "Google",
         lastName: "Only",
         googleId: unique("gid"),
@@ -302,7 +302,7 @@ describe("password recovery", () => {
     });
     const dormant = await prisma.user.create({
       data: {
-        email: `${unique("dormant")}@orbita.test`,
+        email: `${unique("dormant")}@zorqen.test`,
         firstName: "Left",
         lastName: "Building",
         passwordHash: "not-a-real-hash",
@@ -375,7 +375,7 @@ describe("password recovery", () => {
     // The response itself carries no session either way up.
     expect(
       cookieHeaders(done).some(
-        (c) => c.startsWith("atlas_at=;") || c.startsWith("atlas_rt=;"),
+        (c) => c.startsWith("zorqen_at=;") || c.startsWith("zorqen_rt=;"),
       ),
     ).toBe(true);
 

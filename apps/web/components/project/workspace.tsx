@@ -2,20 +2,29 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Archive, ChevronLeft, Filter, ListChecks, Search, Settings2, Users } from 'lucide-react';
+import { Archive, ChevronLeft, Columns3, Download, Filter, ListChecks, Repeat, Search, Settings2, Users, Zap } from 'lucide-react';
 import clsx from 'clsx';
 import { projectsPath } from '~/lib/paths';
-import { useLabels, useBoard, useProject, useSetProjectStatus } from '~/lib/hooks';
-import type { BoardDto, TaskCardDto } from '~/lib/types';
-import { AvatarStack, Button, ErrorNote, ProgressBar, Select, Skeleton, Tabs } from '../ui';
+import { apiHref } from '~/lib/api';
+import { useLabels, useBoard, useProject, useSetProjectStatus, useUpdateTask, useCycles, useCustomFields, useHotkeys } from '~/lib/hooks';
+import type { BoardDto, CustomFieldDto, CustomFieldFilterDto, TaskCardDto } from '~/lib/types';
+import { AvatarStack, Button, ErrorNote, Input, Modal, ProgressBar, Select, Skeleton, Tabs } from '../ui';
 import { Board } from './board';
 import { BulkBar } from './bulk-bar';
+import { GanttView } from './gantt';
 import { TaskDrawer } from './drawer';
 import { TaskList } from './task-list';
+import { FieldDictionaryProvider, taskMatchesFieldFilter } from './fields';
+import { QuickAdd } from './quick-add';
 import { ProjectSettingsModal } from './settings-modal';
 import { ProjectMembersModal } from './members-modal';
+import { CyclesModal } from './cycles-modal';
+import { AutomationsModal } from './automations-modal';
+import { SavedFilterBar, boardFilterParams, boardFilterState } from '../saved-filter-bar';
+import { CalendarView } from '../calendar-view';
+import { ProjectInsights } from './insights';
 
-type View = 'board' | 'list';
+type View = 'board' | 'list' | 'timeline' | 'calendar' | 'insights';
 
 /**
  * A project: its board, its list, its filters and the drawer on top of whichever view is open.
@@ -29,25 +38,35 @@ export function ProjectWorkspace({
     slug,
     projectId,
     viewerId,
+    timezone,
     initialTaskId,
 }: {
     orgId: string;
     slug: string;
     projectId: string;
     viewerId: string;
+    timezone?: string;
     initialTaskId: string | null;
 }) {
     const project = useProject(projectId);
     const board = useBoard(projectId);
     const labels = useLabels(orgId);
+    const cycles = useCycles(projectId);
+    const fieldQuery = useCustomFields(orgId, projectId);
     const setStatus = useSetProjectStatus(orgId);
+    const updateTask = useUpdateTask();
 
     const [view, setView] = useState<View>('board');
     const [term, setTerm] = useState('');
     const [mineOnly, setMineOnly] = useState(false);
     const [labelId, setLabelId] = useState('');
+    const [cycleId, setCycleId] = useState('');
+    const [fieldId, setFieldId] = useState('');
+    const [fieldValue, setFieldValue] = useState('');
+    const [columnIds, setColumnIds] = useState<string[]>([]);
     const [showFilters, setShowFilters] = useState(false);
-    const [modal, setModal] = useState<'settings' | 'members' | null>(null);
+    const [modal, setModal] = useState<'settings' | 'members' | 'cycles' | 'automations' | null>(null);
+    const [createOpen, setCreateOpen] = useState(false);
     const [taskId, setTaskId] = useState<string | null>(initialTaskId);
     const [selectMode, setSelectMode] = useState(false);
     const [selection, setSelection] = useState<Set<string>>(() => new Set());
@@ -120,13 +139,56 @@ export function ProjectWorkspace({
         return () => window.removeEventListener('popstate', onPopState);
     }, []);
 
+    const applyFilterState = useCallback((stored: Record<string, unknown>) => {
+        const next = boardFilterState(stored);
+        setTerm(next.term);
+        setMineOnly(next.mineOnly);
+        setLabelId(next.labelId);
+        setCycleId(next.cycleId);
+        setFieldId(next.fieldId);
+        setFieldValue(next.fieldValue);
+    }, []);
+
+    // Custom fields (Phase 6): the definitions this project sees, in one cache the whole screen shares.
+    const fieldDefs = fieldQuery.data ?? [];
+    const filterField = fieldDefs.find((field) => field.id === fieldId) ?? null;
+    const fieldFilter = useMemo<CustomFieldFilterDto | null>(
+        () => (filterField && fieldValue.trim() ? { fieldId: filterField.id, value: fieldValue.trim() } : null),
+        [filterField, fieldValue],
+    );
+
+    const toggleColumn = useCallback((id: string) => {
+        setColumnIds((prev) => (prev.includes(id) ? prev.filter((candidate) => candidate !== id) : [...prev, id]));
+    }, []);
+
     // A fresh server render (a reload, or a real navigation) is authoritative over local state.
     useEffect(() => setTaskId(initialTaskId), [initialTaskId]);
 
     const filtered = useMemo(
-        () => (board.data ? filterBoard(board.data, { term, assigneeId: mineOnly ? viewerId : null, labelId }) : null),
-        [board.data, term, mineOnly, labelId, viewerId],
+        () => (board.data ? filterBoard(board.data, { term, assigneeId: mineOnly ? viewerId : null, labelId, cycleId, field: fieldFilter, fields: fieldDefs }) : null),
+        [board.data, term, mineOnly, labelId, cycleId, fieldFilter, fieldDefs, viewerId],
     );
+
+    // Timeline rows: the same board cache, reshaped into one group per column (plus backlog).
+    const ganttGroups = useMemo(() => {
+        if (!filtered) return [];
+        const groups = filtered.sections.map((section) => ({ id: section.id, name: section.name, tasks: section.tasks }));
+        if (filtered.unassigned.length > 0) groups.push({ id: '__unassigned', name: 'Backlog', tasks: filtered.unassigned });
+        return groups;
+    }, [filtered]);
+
+    // A project owns its own view keys: `g` + a letter switches tabs, `c` opens quick create.
+    // The shell stands down on this route, so nothing else is listening for these.
+    useHotkeys({
+        'g b': () => setView('board'),
+        'g l': () => setView('list'),
+        'g t': () => setView('timeline'),
+        'g c': () => setView('calendar'),
+        'g i': () => setView('insights'),
+        c: () => {
+            if (project.data?.canEdit) setCreateOpen(true);
+        },
+    });
 
     const detail = project.data;
     const canEdit = detail?.canEdit ?? false;
@@ -162,7 +224,9 @@ export function ProjectWorkspace({
         );
     }
 
-    const filtering = term.trim().length > 0 || mineOnly || labelId !== '';
+    const filtering = term.trim().length > 0 || mineOnly || labelId !== '' || cycleId !== '' || fieldFilter !== null;
+    // Chosen columns ride into the CSV too, so the file and the screen describe the same rows.
+    const exportHref = apiHref(`/projects/${projectId}/export${columnIds.length ? `?fields=${columnIds.join(',')}` : ''}`);
 
     return (
         // The shell header is `h-14`, so this is exactly the room left for a board that scrolls itself.
@@ -187,6 +251,21 @@ export function ProjectWorkspace({
                         <Button size="sm" variant="ghost" icon={<Users className="h-4 w-4" />} onClick={() => setModal('members')}>
                             <span className="hidden sm:inline">Members</span>
                         </Button>
+                        <Button size="sm" variant="ghost" icon={<Repeat className="h-4 w-4" />} onClick={() => setModal('cycles')}>
+                            <span className="hidden sm:inline">Cycles</span>
+                        </Button>
+                        <Button size="sm" variant="ghost" icon={<Zap className="h-4 w-4" />} onClick={() => setModal('automations')}>
+                            <span className="hidden sm:inline">Automations</span>
+                        </Button>
+                        <a
+                            href={exportHref}
+                            download
+                            className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-ink-muted transition hover:bg-hover hover:text-ink"
+                            title="Export tasks as CSV"
+                        >
+                            <Download className="h-4 w-4" />
+                            <span className="hidden sm:inline">Export</span>
+                        </a>
                         {canEdit ? (
                             <Button size="sm" variant="ghost" icon={<Settings2 className="h-4 w-4" />} onClick={() => setModal('settings')}>
                                 <span className="hidden sm:inline">Settings</span>
@@ -223,6 +302,9 @@ export function ProjectWorkspace({
                         options={[
                             { value: 'board', label: 'Board' },
                             { value: 'list', label: 'List' },
+                            { value: 'timeline', label: 'Timeline' },
+                            { value: 'calendar', label: 'Calendar' },
+                            { value: 'insights', label: 'Insights' },
                         ]}
                     />
 
@@ -256,9 +338,91 @@ export function ProjectWorkspace({
                             ))}
                         </Select>
 
+                        {cycles.data && cycles.data.length > 0 ? (
+                            <Select value={cycleId} aria-label="Filter by cycle" className="w-40" onChange={(event) => setCycleId(event.target.value)}>
+                                <option value="">Any cycle</option>
+                                {cycles.data.map((cycle) => (
+                                    <option key={cycle.id} value={cycle.id}>
+                                        {cycle.name}
+                                    </option>
+                                ))}
+                            </Select>
+                        ) : null}
+
                         <button type="button" className={clsx('btn btn-sm', mineOnly ? 'btn-primary' : 'btn-secondary')} onClick={() => setMineOnly((value) => !value)}>
                             Only mine
                         </button>
+
+                        {/* Field filter (Phase 6): pick a shape, then answer it. The value control is
+                            the same one the drawer uses, so a filter cannot ask for a value the field
+                            could never hold. */}
+                        {fieldDefs.length > 0 ? (
+                            <>
+                                <Select
+                                    value={fieldId}
+                                    aria-label="Filter by custom field"
+                                    className="w-44"
+                                    onChange={(event) => {
+                                        setFieldId(event.target.value);
+                                        setFieldValue('');
+                                    }}
+                                >
+                                    <option value="">Any field</option>
+                                    {fieldDefs.map((field) => (
+                                        <option key={field.id} value={field.id}>
+                                            {field.name}
+                                        </option>
+                                    ))}
+                                </Select>
+                                {filterField ? (
+                                    filterField.type === 'select' || filterField.type === 'checkbox' ? (
+                                        <Select value={fieldValue} aria-label={`Value for ${filterField.name}`} className="w-40" onChange={(event) => setFieldValue(event.target.value)}>
+                                            <option value="">Any value</option>
+                                            {(filterField.type === 'checkbox' ? [['true', 'Yes'], ['false', 'No']] : filterField.options.map((option) => [option, option] as [string, string])).map(([option, label]) => (
+                                                <option key={option} value={option}>
+                                                    {label}
+                                                </option>
+                                            ))}
+                                        </Select>
+                                    ) : (
+                                        <Input
+                                            type={filterField.type === 'date' ? 'date' : filterField.type === 'number' ? 'number' : 'text'}
+                                            value={fieldValue}
+                                            aria-label={`Value for ${filterField.name}`}
+                                            placeholder="contains…"
+                                            className="w-40"
+                                            onChange={(event) => setFieldValue(event.target.value)}
+                                        />
+                                    )
+                                ) : null}
+                            </>
+                        ) : null}
+
+                        {/* Columns are a display choice, not a filter, so they stay put when the
+                            facets are cleared — and they are what the CSV download adds. */}
+                        {fieldDefs.length > 0 ? (
+                            <span className="flex flex-wrap items-center gap-1.5">
+                                <span className="inline-flex items-center gap-1 text-xs text-ink-faint">
+                                    <Columns3 className="h-3.5 w-3.5" />
+                                    Columns
+                                </span>
+                                {fieldDefs.map((field) => (
+                                    <button
+                                        key={field.id}
+                                        type="button"
+                                        aria-pressed={columnIds.includes(field.id)}
+                                        onClick={() => toggleColumn(field.id)}
+                                        title={columnIds.includes(field.id) ? `Hide ${field.name} in list view` : `Show ${field.name} in list view`}
+                                        className={clsx(
+                                            'rounded-full border px-2 py-0.5 text-xs transition',
+                                            columnIds.includes(field.id) ? 'border-brand-300 bg-brand-50 text-brand-700' : 'border-line text-ink-faint hover:border-line-strong hover:text-ink',
+                                        )}
+                                    >
+                                        {field.name}
+                                    </button>
+                                ))}
+                            </span>
+                        ) : null}
 
                         {filtering ? (
                             <button
@@ -268,11 +432,21 @@ export function ProjectWorkspace({
                                     setTerm('');
                                     setMineOnly(false);
                                     setLabelId('');
+                                    setCycleId('');
+                                    setFieldId('');
+                                    setFieldValue('');
                                 }}
                             >
                                 Clear
                             </button>
                         ) : null}
+
+                        <SavedFilterBar
+                            orgId={orgId}
+                            projectId={projectId}
+                            params={boardFilterParams({ term, mineOnly, labelId, cycleId, fieldId, fieldValue })}
+                            onApply={applyFilterState}
+                        />
                     </div>
                 ) : null}
 
@@ -291,23 +465,10 @@ export function ProjectWorkspace({
                 ) : null}
             </header>
 
-            <main className="relative min-h-0 flex-1 bg-canvas">
-                {view === 'board' ? (
-                    <Board
-                        orgId={orgId}
-                        projectId={projectId}
-                        board={filtered}
-                        canEdit={canEdit}
-                        onOpen={open}
-                        selectedTaskId={taskId}
-                        selectable={selectMode}
-                        selectedIds={selection}
-                        onToggleSelect={toggleSelect}
-                        onToggleMany={toggleMany}
-                    />
-                ) : (
-                    <div className="mx-auto max-w-5xl px-4 py-5">
-                        <TaskList
+            <FieldDictionaryProvider fields={fieldDefs}>
+                <main className="relative min-h-0 flex-1 bg-canvas">
+                    {view === 'board' ? (
+                        <Board
                             orgId={orgId}
                             projectId={projectId}
                             board={filtered}
@@ -319,19 +480,48 @@ export function ProjectWorkspace({
                             onToggleSelect={toggleSelect}
                             onToggleMany={toggleMany}
                         />
-                    </div>
-                )}
+                    ) : view === 'timeline' ? (
+                        <GanttView
+                            groups={ganttGroups}
+                            canEdit={canEdit}
+                            onOpen={open}
+                            onReschedule={(taskIdForMove, patch) => updateTask.mutate({ taskId: taskIdForMove, patch })}
+                        />
+                    ) : view === 'calendar' ? (
+                        <div className="mx-auto max-w-6xl px-4 py-5">
+                            <CalendarView orgId={orgId} slug={slug} viewerId={viewerId} timezone={timezone} projectId={projectId} canEdit={canEdit} onOpen={open} />
+                        </div>
+                    ) : view === 'insights' ? (
+                        <ProjectInsights orgId={orgId} projectId={projectId} />
+                    ) : (
+                        <div className="mx-auto max-w-5xl px-4 py-5">
+                            <TaskList
+                                orgId={orgId}
+                                projectId={projectId}
+                                board={filtered}
+                                canEdit={canEdit}
+                                onOpen={open}
+                                selectedTaskId={taskId}
+                                selectable={selectMode}
+                                selectedIds={selection}
+                                onToggleSelect={toggleSelect}
+                                onToggleMany={toggleMany}
+                                columnIds={columnIds}
+                            />
+                        </div>
+                    )}
 
-                {selectMode && selection.size > 0 ? (
-                    <BulkBar
-                        orgId={orgId}
-                        sections={sectionOptions}
-                        selectedIds={[...selection]}
-                        onClear={clearSelection}
-                        onResult={(failedIds) => setSelection(new Set(failedIds))}
-                    />
-                ) : null}
-            </main>
+                    {selectMode && selection.size > 0 ? (
+                        <BulkBar
+                            orgId={orgId}
+                            sections={sectionOptions}
+                            selectedIds={[...selection]}
+                            onClear={clearSelection}
+                            onResult={(failedIds) => setSelection(new Set(failedIds))}
+                        />
+                    ) : null}
+                </main>
+            </FieldDictionaryProvider>
 
             {taskId ? (
                 <TaskDrawer
@@ -348,6 +538,23 @@ export function ProjectWorkspace({
 
             {modal === 'settings' ? <ProjectSettingsModal project={detail} orgId={orgId} slug={slug} onClose={() => setModal(null)} /> : null}
             {modal === 'members' ? <ProjectMembersModal project={detail} orgId={orgId} onClose={() => setModal(null)} /> : null}
+            {modal === 'cycles' ? <CyclesModal projectId={projectId} canEdit={canEdit} onClose={() => setModal(null)} /> : null}
+            {modal === 'automations' ? <AutomationsModal projectId={projectId} orgId={orgId} canEdit={canEdit} onClose={() => setModal(null)} /> : null}
+
+            {createOpen ? (
+                <Modal
+                    title="New task"
+                    description="Enter adds another; Escape closes."
+                    onClose={() => setCreateOpen(false)}
+                    footer={
+                        <Button variant="secondary" size="sm" onClick={() => setCreateOpen(false)}>
+                            Close
+                        </Button>
+                    }
+                >
+                    <QuickAdd orgId={orgId} body={{ projectId }} label="Task title" />
+                </Modal>
+            ) : null}
         </div>
     );
 }
@@ -358,14 +565,19 @@ export function ProjectWorkspace({
  * The whole board is already in memory and a project is small enough to filter on the client, so
  * a keystroke in the search box costs no request and the two views stay perfectly in step.
  */
-function filterBoard(board: BoardDto, filters: { term: string; assigneeId: string | null; labelId: string }): BoardDto {
+function filterBoard(
+    board: BoardDto,
+    filters: { term: string; assigneeId: string | null; labelId: string; cycleId: string; field: CustomFieldFilterDto | null; fields: CustomFieldDto[] },
+): BoardDto {
     const needle = filters.term.trim().toLowerCase();
     const keep = (task: TaskCardDto) =>
         (!needle || task.title.toLowerCase().includes(needle) || (task.description ?? '').toLowerCase().includes(needle)) &&
         (!filters.assigneeId || task.assigneeIds.includes(filters.assigneeId)) &&
-        (!filters.labelId || task.labels.some((label) => label.id === filters.labelId));
+        (!filters.labelId || task.labels.some((label) => label.id === filters.labelId)) &&
+        (!filters.cycleId || task.cycleId === filters.cycleId) &&
+        (!filters.field || taskMatchesFieldFilter(task, filters.field, filters.fields));
 
-    if (!needle && !filters.assigneeId && !filters.labelId) return board;
+    if (!needle && !filters.assigneeId && !filters.labelId && !filters.cycleId && !filters.field) return board;
 
     return {
         ...board,

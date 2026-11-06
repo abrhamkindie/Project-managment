@@ -1,13 +1,14 @@
 'use client';
 
-import { CalendarDays, CheckCircle2, ChevronDown, ChevronRight, Flag, ListTree, MessageSquare, Paperclip } from 'lucide-react';
+import { CalendarDays, CheckCircle2, ChevronDown, ChevronRight, Clock, Flag, ListTree, MessageSquare, Paperclip } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import clsx from 'clsx';
-import { DUE_CLASS, PRIORITY_CLASS, PRIORITY_LABEL, STATUS_LABEL, STATUS_TOKEN, dueLabel, dueTone } from '~/lib/format';
+import { DUE_CLASS, PRIORITY_CLASS, PRIORITY_LABEL, STATUS_LABEL, STATUS_TOKEN, dueLabel, dueTone, formatMins } from '~/lib/format';
 import type { TaskCardDto } from '~/lib/types';
 import { AvatarStack } from '../ui';
+import { FieldChips } from './fields';
 
 /**
  * The task card, as it appears on the board and in the list.
@@ -85,6 +86,7 @@ export function TaskCard({
             {...(draggable ? sortable.attributes : {})}
             {...(draggable ? sortable.listeners : {})}
             onClick={activate}
+            data-task-card={task.id}
             onKeyDown={(event) => {
                 if (event.key === 'Enter' || event.key === ' ') activate();
             }}
@@ -121,8 +123,27 @@ export function TaskCard({
                 ) : null}
                 {task.status === 'done' ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-state-done" /> : null}
                 {task.isMilestone ? <Flag className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" /> : null}
+                {task.kind === 'epic' ? (
+                    <span className="mt-0.5 inline-flex shrink-0 items-center rounded bg-brand-500/10 px-1 text-[10px] font-semibold uppercase tracking-wide text-brand-600" title="Epic">
+                        Epic
+                    </span>
+                ) : null}
                 <span className={clsx('min-w-0 flex-1', task.status === 'done' && 'text-ink-muted line-through', task.parentTaskId && !expanded && 'text-ink-soft')}>{task.title}</span>
             </p>
+
+            {task.kind === 'epic' && task.epicProgress && task.epicProgress.total > 0 ? (
+                <div className="mt-2 flex items-center gap-2" title={`${task.epicProgress.done} of ${task.epicProgress.total} child tasks done`}>
+                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-subtle">
+                        <div
+                            className="h-full rounded-full bg-brand-500 transition-all"
+                            style={{ width: `${Math.round((task.epicProgress.done / task.epicProgress.total) * 100)}%` }}
+                        />
+                    </div>
+                    <span className="tabular-nums text-[11px] text-ink-faint">
+                        {task.epicProgress.done}/{task.epicProgress.total}
+                    </span>
+                </div>
+            ) : null}
 
             {task.labels.length > 0 ? (
                 <ul className="mt-2 flex flex-wrap gap-1">
@@ -133,6 +154,10 @@ export function TaskCard({
                     ))}
                 </ul>
             ) : null}
+
+            {/* Custom-field values (Phase 6). Two at most: a card is scanned, not read, and the
+                drawer below it holds the rest. */}
+            <FieldChips task={task} />
 
             <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-xs">
                 {/* Creation-order label inside the project. Display only: it is renumbered when a
@@ -149,6 +174,25 @@ export function TaskCard({
 
                 {task.priority !== 'none' ? (
                     <span className={clsx('inline-flex items-center gap-1 font-medium', PRIORITY_CLASS[task.priority])}>{PRIORITY_LABEL[task.priority]}</span>
+                ) : null}
+
+                {/* Logged time only earns a slot once there is some. Turns red past the estimate, which is
+                    the one number on the card that says "this is taking longer than we thought". */}
+                {task.loggedMins ? (
+                    <span
+                        className={clsx(
+                            'inline-flex items-center gap-1 tabular-nums',
+                            task.estimateMins && task.loggedMins > task.estimateMins ? 'text-danger' : 'text-ink-faint',
+                        )}
+                        title={
+                            task.estimateMins
+                                ? `${formatMins(task.loggedMins)} logged of ${formatMins(task.estimateMins)} estimated`
+                                : `${formatMins(task.loggedMins)} logged`
+                        }
+                    >
+                        <Clock className="h-3.5 w-3.5" />
+                        {formatMins(task.loggedMins)}
+                    </span>
                 ) : null}
 
                 <span className="inline-flex items-center gap-2 text-ink-faint">

@@ -11,19 +11,19 @@ export function signAccessToken(claims: AccessTokenClaims): string {
   return jwt.sign(claims, env.JWT_ACCESS_SECRET, {
     // seconds, taken from the same knob that sets the cookie Max-Age
     expiresIn: env.ACCESS_TOKEN_SECONDS,
-    issuer: "orbita-api",
-    audience: "orbita-web",
+    issuer: "zorqen-api",
+    audience: "zorqen-web",
   });
 }
 
 export function verifyAccessToken(token: string): AccessTokenClaims {
   try {
     const decoded = jwt.verify(token, env.JWT_ACCESS_SECRET, {
-      issuer: "orbita-api",
-      audience: "orbita-web",
+      issuer: "zorqen-api",
+      audience: "zorqen-web",
     });
     if (typeof decoded === "string" || !decoded.sub)
-      throw new Error("malformed");
+      {throw new Error("malformed");}
     return { sub: decoded.sub, email: (decoded as AccessTokenClaims).email };
   } catch {
     throw new Unauthorized("Session expired or invalid");

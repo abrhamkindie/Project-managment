@@ -35,7 +35,7 @@ export function presentUser(user: {
     };
 }
 
-const lightUser = (u: { id: string; email: string; firstName: string; lastName: string; avatarUrl?: string | null }) => ({
+export const lightUser = (u: { id: string; email: string; firstName: string; lastName: string; avatarUrl?: string | null }) => ({
     id: u.id,
     email: u.email,
     firstName: u.firstName,
@@ -47,12 +47,30 @@ export const TASK_INCLUDE = {
     assignees: { include: { user: true }, orderBy: [{ isPrimary: 'desc' as const }, { createdAt: 'asc' as const }] },
     labels: { include: { label: true } },
     attachments: true,
+    /** Custom-field values (Phase 6). Names come from the definition list the client caches. */
+    fieldValues: { select: { fieldId: true, value: true } },
     _count: { select: { children: true, comments: true } },
 } satisfies Prisma.TaskInclude;
 
 export type TaskWithRelations = Prisma.TaskGetPayload<{ include: typeof TASK_INCLUDE }>;
 
-export function presentTask(task: TaskWithRelations, now = new Date(), number?: number | null) {
+export function presentTask(
+    task: TaskWithRelations,
+    now = new Date(),
+    number?: number | null,
+    /** Epic rollup: done/total across direct children. Supplied by callers that batch it. */
+    progress?: { done: number; total: number } | null,
+    /** Minutes logged against this task. Batched by the readers that show many cards at once. */
+    logged?: number | null,
+) {
+    let recurrence: unknown = null;
+    if (task.recurrence) {
+        try {
+            recurrence = JSON.parse(task.recurrence);
+        } catch {
+            recurrence = null;
+        }
+    }
     return {
         id: task.id,
         projectId: task.projectId,
@@ -72,6 +90,13 @@ export function presentTask(task: TaskWithRelations, now = new Date(), number?: 
         startDate: date(task.startDate),
         estimateMins: task.estimateMins,
         isMilestone: task.isMilestone,
+        kind: task.kind,
+        cycleId: task.cycleId,
+        recurrence,
+        /** Present only for epics the caller computed a rollup for. */
+        ...(progress ? { epicProgress: progress } : {}),
+        /** Present only where the caller batched the time total; a card without it shows nothing. */
+        ...(logged !== undefined ? { loggedMins: logged } : {}),
         position: task.position,
         isOverdue: isOverdue(task.dueDate, task.status, now),
         completedAt: date(task.completedAt),
@@ -81,6 +106,11 @@ export function presentTask(task: TaskWithRelations, now = new Date(), number?: 
         assignees: task.assignees.map((a) => ({ ...lightUser(a.user), isPrimary: a.isPrimary })),
         assigneeIds: task.assignees.map((a) => a.user.id),
         labels: task.labels.map((l) => ({ id: l.label.id, name: l.label.name, color: l.label.color })),
+        /**
+         * Custom-field values, unlabelled on purpose: a card needs no second request to show its
+         * chips, and the drawer already loads the definitions to render the inputs.
+         */
+        ...(task.fieldValues ? { fields: task.fieldValues.map((row) => ({ fieldId: row.fieldId, value: row.value })) } : {}),
         attachments: task.attachments.map((a) => ({
             id: a.id,
             filename: a.filename,

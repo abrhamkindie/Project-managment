@@ -48,7 +48,7 @@ export interface Workspace {
 
 export async function signUp(orgName = unique("Org")): Promise<Workspace> {
   const agent = request.agent(app);
-  const email = `${unique("user")}@orbita.test`;
+  const email = `${unique("user")}@zorqen.test`;
   const res = await must(
     agent
       .post("/api/auth/register")
@@ -84,7 +84,7 @@ export async function addMember(
   owner: Workspace,
   role: "admin" | "manager" | "member" = "member",
 ): Promise<Workspace> {
-  const email = `${unique("teammate")}@orbita.test`;
+  const email = `${unique("teammate")}@zorqen.test`;
   const created = await must(
     request(app)
       .post("/api/auth/register")

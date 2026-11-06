@@ -1,5 +1,5 @@
 import { prisma } from '../lib/prisma.js';
-import { Forbidden } from '../domain/errors.js';
+import { Forbidden, NotFound } from '../domain/errors.js';
 import { isDoneStatus, isOpenStatus, priorityWeight } from '../domain/enums.js';
 import { can, isOverdue, type Access } from '../domain/permissions.js';
 import { dayKey, daysAgoStart, weekKey } from '../lib/time.js';
@@ -150,12 +150,25 @@ export async function overview(user: AuthUser, orgId: string, query: AnalyticsQu
         where: { id: { in: [...workload.keys()] } },
         select: { id: true, firstName: true, lastName: true, avatarUrl: true },
     });
+    // Minutes those people actually logged in the window — time tracking totals per member.
+    const loggedWhere = {
+        stoppedAt: { not: null },
+        startedAt: { gte: from, lte: to },
+        task: { deletedAt: null, project: { orgId, ...(projectIds === 'all' ? {} : { id: { in: projectIds } }) } },
+    };
+    const [logged, loggedTotal] = await Promise.all([
+        prisma.timeLog.groupBy({ by: ['userId'], where: loggedWhere, _sum: { durationMins: true } }),
+        // The team figure is everyone's time, not only that of people holding assigned tasks.
+        prisma.timeLog.aggregate({ where: loggedWhere, _sum: { durationMins: true } }),
+    ]);
+    const minsByPerson = new Map(logged.map((row) => [row.userId, row._sum.durationMins ?? 0]));
     const workloadByPerson = people
         .map((p) => {
             const w = workload.get(p.id) ?? { open: 0, overdue: 0, done: 0, completedInWindow: 0, assigned: 0, score: 0 };
             return {
                 user: p,
                 ...w,
+                loggedMins: minsByPerson.get(p.id) ?? 0,
                 // Share of this person's assigned tasks that are done — their progress.
                 progress: w.assigned ? Math.round((w.done / w.assigned) * 1000) / 10 : 0,
             };
@@ -207,6 +220,9 @@ export async function overview(user: AuthUser, orgId: string, query: AnalyticsQu
             completionRate: created.length ? Math.round((completed.length / created.length) * 1000) / 10 : null,
             progress: rows.length ? Math.round((done.length / rows.length) * 1000) / 10 : 0,
             avgCompletionHours,
+            // Finished on or before its due date, of the dated work finished in the window.
+            onTimeRate: onTimeRate(completed),
+            loggedMins: loggedTotal._sum.durationMins ?? 0,
         },
         byStatus,
         byPriority,
@@ -234,4 +250,145 @@ function tally(rows: TaskRow[], key: (row: TaskRow) => string): { key: string; c
 export async function workload(user: AuthUser, orgId: string, query: AnalyticsQuery) {
     const report = await overview(user, orgId, query);
     return { window: report.window, workload: report.workload };
+}
+
+// ------------------------------------------------------------------ cycle reporting
+
+const DAY_MS = 86_400_000;
+/** Ordinal of the UTC calendar day a timestamp falls on. */
+const dayIndex = (date: Date) => Math.floor(Date.parse(`${dayKey(date)}T00:00:00Z`) / DAY_MS);
+const keyForIndex = (index: number) => new Date(index * DAY_MS).toISOString().slice(0, 10);
+
+/** Share of finished, dated work that landed on or before its due date. `null` = nothing dated to measure. */
+function onTimeRate(rows: { completedAt: Date | null; dueDate: Date | null }[]): number | null {
+    const dated = rows.filter((row) => row.completedAt && row.dueDate);
+    if (dated.length === 0) return null;
+    const onTime = dated.filter((row) => (row.completedAt as Date).getTime() <= (row.dueDate as Date).getTime()).length;
+    return Math.round((onTime / dated.length) * 1000) / 10;
+}
+
+/**
+ * Burndown for one cycle: remaining scope per day against the straight line the plan implies.
+ *
+ * Scope is the set of tasks carrying the cycle *now* — a task pulled in mid-cycle is counted from
+ * day one, which is the honest reading of "we should have known" and the same approximation Linear
+ * and Jira make rather than replaying the history of `cycleId` edits. Days after today are left
+ * `null` so a chart draws no invented future; the actual line simply stops.
+ */
+export async function cycleBurndown(user: AuthUser, projectId: string, cycleId: string) {
+    const { access, project } = await loadProjectAccess(user, projectId);
+    if (!can.viewProjectReport(access)) throw new Forbidden('No access to this project report');
+
+    const cycle = await prisma.cycle.findFirst({
+        where: { id: cycleId, projectId },
+        select: { id: true, name: true, number: true, status: true, startsAt: true, endsAt: true },
+    });
+    if (!cycle) throw new NotFound('Cycle not found');
+
+    const [tasks, logs] = await Promise.all([
+        prisma.task.findMany({
+            where: { cycleId: cycle.id },
+            select: { id: true, createdAt: true, completedAt: true, estimateMins: true },
+        }),
+        prisma.timeLog.findMany({
+            where: { task: { cycleId: cycle.id }, stoppedAt: { not: null } },
+            select: { startedAt: true, durationMins: true },
+        }),
+    ]);
+
+    const from = dayIndex(cycle.startsAt);
+    const to = dayIndex(cycle.endsAt);
+    const today = dayIndex(new Date());
+    const span = Math.max(1, to - from);
+
+    const minsByDay = new Map<string, number>();
+    for (const log of logs) {
+        const key = dayKey(log.startedAt);
+        minsByDay.set(key, (minsByDay.get(key) ?? 0) + (log.durationMins ?? 0));
+    }
+
+    const days: { date: string; ideal: number; remaining: number | null; completed: number; loggedMins: number }[] = [];
+    for (let index = from; index <= to; index += 1) {
+        const date = keyForIndex(index);
+        const cutoff = index * DAY_MS + DAY_MS - 1;
+        const doneByThen = tasks.filter((task) => task.completedAt && task.completedAt.getTime() <= cutoff).length;
+        const existed = tasks.filter((task) => task.createdAt.getTime() <= cutoff).length;
+        days.push({
+            date,
+            ideal: Math.round(((to - index) / span) * tasks.length * 10) / 10,
+            // Future days have no truth to plot.
+            remaining: index > today ? null : existed - doneByThen,
+            completed: index > today ? 0 : doneByThen,
+            loggedMins: minsByDay.get(date) ?? 0,
+        });
+    }
+
+    const completed = tasks.filter((task) => task.completedAt !== null).length;
+    return {
+        cycle,
+        project: { id: project.id, name: project.name, color: project.color },
+        totals: {
+            scope: tasks.length,
+            completed,
+            remaining: tasks.length - completed,
+            completion: tasks.length ? Math.round((completed / tasks.length) * 1000) / 10 : 0,
+            estimateMins: tasks.reduce((sum, task) => sum + (task.estimateMins ?? 0), 0),
+            loggedMins: [...minsByDay.values()].reduce((sum, mins) => sum + mins, 0),
+        },
+        days,
+    };
+}
+
+/**
+ * Per-cycle outcomes for a project, oldest first — the velocity trend.
+ *
+ * `scope` is today's membership of the cycle, so a closed cycle that later absorbed work reads
+ * bigger than it did on the day it ended; that is the same trade the burndown makes, and it keeps
+ * the two charts telling one story.
+ */
+export async function cycleCompletion(user: AuthUser, projectId: string) {
+    const { access } = await loadProjectAccess(user, projectId);
+    if (!can.viewProjectReport(access)) throw new Forbidden('No access to this project report');
+
+    const cycles = await prisma.cycle.findMany({
+        where: { projectId },
+        orderBy: { number: 'asc' },
+        select: { id: true, name: true, number: true, status: true, startsAt: true, endsAt: true },
+    });
+    const ids = cycles.map((cycle) => cycle.id);
+    const [tasks, logs] = await Promise.all([
+        prisma.task.findMany({ where: { cycleId: { in: ids } }, select: { cycleId: true, completedAt: true } }),
+        prisma.timeLog.findMany({
+            where: { task: { cycleId: { in: ids } }, stoppedAt: { not: null } },
+            select: { durationMins: true, task: { select: { cycleId: true } } },
+        }),
+    ]);
+
+    const scope = new Map<string, { total: number; done: number }>();
+    for (const task of tasks) {
+        if (!task.cycleId) continue;
+        const current = scope.get(task.cycleId) ?? { total: 0, done: 0 };
+        current.total += 1;
+        if (task.completedAt) current.done += 1;
+        scope.set(task.cycleId, current);
+    }
+    const mins = new Map<string, number>();
+    for (const log of logs) {
+        const cycleId = log.task.cycleId;
+        if (!cycleId) continue;
+        mins.set(cycleId, (mins.get(cycleId) ?? 0) + (log.durationMins ?? 0));
+    }
+
+    return {
+        cycles: cycles.map((cycle) => {
+            const counts = scope.get(cycle.id) ?? { total: 0, done: 0 };
+            return {
+                ...cycle,
+                scope: counts.total,
+                completed: counts.done,
+                completion: counts.total ? Math.round((counts.done / counts.total) * 1000) / 10 : 0,
+                loggedMins: mins.get(cycle.id) ?? 0,
+            };
+        }),
+    };
 }

@@ -10,7 +10,7 @@
  * Needs the API running as well (the proxy targets it) and a seeded database.
  */
 const BASE = (process.argv[2] ?? 'http://127.0.0.1:3000').replace(/\/$/, '');
-const CREDENTIALS = process.argv[3] ? [process.argv[3], process.argv[4]] : ['ada@atlas.local', 'Passw0rd!'];
+const CREDENTIALS = process.argv[3] ? [process.argv[3], process.argv[4]] : ['ada@zorqen.local', 'Passw0rd!'];
 
 let cookie = '';
 let failures = 0;
@@ -43,7 +43,7 @@ if (!login.ok) {
 const session = await login.json();
 for (const entry of login.headers.getSetCookie?.() ?? []) {
     // Keep only the session cookies; the jar is sent to the web origin, not the API origin.
-    if (entry.startsWith('atlas_')) cookie = `${cookie ? `${cookie}; ` : ''}${entry.split(';')[0]}`;
+    if (entry.startsWith('zorqen_')) cookie = `${cookie ? `${cookie}; ` : ''}${entry.split(';')[0]}`;
 }
 
 const slug = session.organizations[0].slug;
@@ -81,7 +81,7 @@ if (guarded.location && !guarded.location.startsWith('/login')) {
 }
 check('login screen', '/login', await get('/login'), [200], 'Sign in');
 check('register screen', '/register', await get('/register'), [200], 'Create');
-check('invite screen', '/invite', await get('/invite'), [200], 'Atlas');
+check('invite screen', '/invite', await get('/invite'), [200], 'ZORQEN');
 
 console.log(failures === 0 ? '\nWEB SMOKE PASSED' : `\nWEB SMOKE FAILED (${failures} problem(s))`);
 process.exit(failures === 0 ? 0 : 1);

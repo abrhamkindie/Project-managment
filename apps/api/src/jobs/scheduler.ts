@@ -6,14 +6,17 @@ import { isOpenStatus } from '../domain/enums.js';
 import { isOverdue } from '../domain/permissions.js';
 import { notify } from '../services/activity.js';
 import { mails } from '../services/mailer.js';
+import { materializeRecurrences } from '../services/recurrence.service.js';
+import { pruneDeliveries, runWebhookRetries } from '../services/webhook.service.js';
 
 /**
  * Scheduled work.
  *
- * Two jobs run here: the due-date digest (the only one that has to be on a human clock) and
- * housekeeping, which retires the rows that exist purely to expire. `CRON_ENABLED=false`
- * disables both on replicas that should not run jobs, which is the standard way to scale an
- * app with a single-instance cron.
+ * Three kinds of work run here: the due-date digest (the only one that has to be on a human clock),
+ * housekeeping, which retires the rows that exist purely to expire, and the webhook retry sweep —
+ * queueing deliveries in the database rather than a Redis list is what keeps outbound integrations
+ * working on a single-box install. `CRON_ENABLED=false` disables all of them on replicas that
+ * should not run jobs, which is the standard way to scale an app with a single-instance cron.
  */
 
 export interface JobRunner {
@@ -112,7 +115,7 @@ export async function runHousekeeping(now = new Date()): Promise<Record<string, 
     const credentialCutoff = new Date(now.getTime() - DEAD_CREDENTIAL_GRACE_DAYS * 86_400_000);
     const notificationCutoff = new Date(now.getTime() - env.NOTIFICATION_RETENTION_DAYS * 86_400_000);
 
-    const [refreshTokens, resetTokens, buckets, invitations, notifications] = await Promise.all([
+    const [refreshTokens, resetTokens, buckets, invitations, notifications, apiTokens, deliveries] = await Promise.all([
         // Expired, or revoked long enough ago that a replay would already have been caught.
         prisma.refreshToken.deleteMany({
             where: { OR: [{ expiresAt: { lt: credentialCutoff } }, { revokedAt: { not: null, lt: credentialCutoff } }] },
@@ -123,6 +126,12 @@ export async function runHousekeeping(now = new Date()): Promise<Record<string, 
         prisma.rateLimitBucket.deleteMany({ where: { expiresAt: { lt: now } } }),
         prisma.invitation.deleteMany({ where: { expiresAt: { lt: credentialCutoff }, acceptedAt: null } }),
         prisma.notification.deleteMany({ where: { readAt: { not: null }, createdAt: { lt: notificationCutoff } } }),
+        // A revoked or expired token cannot authenticate again, and the settings list is the only
+        // reader — it does not need history, the Activity rows do.
+        prisma.apiToken.deleteMany({
+            where: { OR: [{ expiresAt: { not: null, lt: now } }, { revokedAt: { lt: credentialCutoff } }] },
+        }),
+        pruneDeliveries(now),
     ]);
 
     const counts = {
@@ -131,6 +140,8 @@ export async function runHousekeeping(now = new Date()): Promise<Record<string, 
         rateLimitBuckets: buckets.count,
         invitations: invitations.count,
         notifications: notifications.count,
+        apiTokens: apiTokens.count,
+        webhookDeliveries: deliveries,
     };
     if (Object.values(counts).some((value) => value > 0)) {
         logger.info(counts, 'housekeeping finished');
@@ -159,6 +170,8 @@ export function startJobs(): JobRunner {
     const tasks = [
         schedule(env.DUE_REMINDER_CRON, 'due reminders', sendDueReminders),
         schedule(env.HOUSEKEEPING_CRON, 'housekeeping', runHousekeeping),
+        schedule(env.RECURRENCE_CRON, 'recurrence materialisation', materializeRecurrences),
+        schedule(env.WEBHOOK_RETRY_CRON, 'webhook retries', runWebhookRetries),
     ].filter((task): task is cron.ScheduledTask => task !== null);
 
     return {

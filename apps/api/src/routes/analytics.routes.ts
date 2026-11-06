@@ -3,7 +3,7 @@ import { asyncHandler } from '../lib/http.js';
 import { input, validate } from '../middleware/validate.js';
 import { authenticate, currentUser } from '../middleware/auth.js';
 import * as analytics from '../services/analytics.service.js';
-import { analyticsQuerySchema, type AnalyticsQuery } from '../domain/schemas.js';
+import { analyticsQuerySchema, burndownQuerySchema, type AnalyticsQuery, type BurndownQuery } from '../domain/schemas.js';
 import { prisma } from '../lib/prisma.js';
 import { NotFound } from '../domain/errors.js';
 
@@ -43,5 +43,22 @@ analyticsRouter.get(
         if (!project) throw new NotFound('Project not found');
         const query = { ...input<AnalyticsQuery>(req, 'query'), projectId: req.params.projectId };
         res.json(await analytics.overview(currentUser(req), project.orgId, query));
+    }),
+);
+
+/** Burndown for one cycle: remaining scope per day against the ideal line. */
+analyticsRouter.get(
+    '/projects/:projectId/analytics/burndown',
+    validate(burndownQuerySchema, 'query'),
+    asyncHandler(async (req, res) => {
+        res.json(await analytics.cycleBurndown(currentUser(req), req.params.projectId, input<BurndownQuery>(req, 'query').cycleId));
+    }),
+);
+
+/** Velocity trend: scope, completion and logged time per cycle, oldest first. */
+analyticsRouter.get(
+    '/projects/:projectId/analytics/cycles',
+    asyncHandler(async (req, res) => {
+        res.json(await analytics.cycleCompletion(currentUser(req), req.params.projectId));
     }),
 );

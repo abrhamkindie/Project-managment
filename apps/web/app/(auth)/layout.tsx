@@ -40,7 +40,7 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
           >
             O
           </span>
-          Orbita
+          ZORQEN
         </Link>
 
         <div className="relative max-w-md space-y-6">

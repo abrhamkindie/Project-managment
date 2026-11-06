@@ -1,14 +1,17 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import {
     DndContext,
     DragOverlay,
     KeyboardSensor,
+    MeasuringStrategy,
     PointerSensor,
     closestCorners,
+    pointerWithin,
     useSensor,
     useSensors,
+    type CollisionDetection,
     type DragEndEvent,
     type DragStartEvent,
 } from '@dnd-kit/core';
@@ -29,6 +32,14 @@ interface Drop {
     list: TaskCardDto[];
     beforeId: string | null;
 }
+
+/** Arrow keys as grid steps: `y` walks down a column, `x` hops to the neighbouring one. */
+const ARROWS: Record<string, { axis: 'x' | 'y'; delta: number }> = {
+    ArrowUp: { axis: 'y', delta: -1 },
+    ArrowDown: { axis: 'y', delta: 1 },
+    ArrowLeft: { axis: 'x', delta: -1 },
+    ArrowRight: { axis: 'x', delta: 1 },
+};
 
 /**
  * Resolve `over.id` into a column and a position.
@@ -64,6 +75,20 @@ function isBelow(event: DragEndEvent): boolean {
 }
 
 /**
+ * Where a drag currently counts as hovering.
+ *
+ * `pointerWithin` is the accurate answer whenever the pointer is actually over a card or column, so
+ * it is preferred. Only when the pointer is in a gap — between two cards, or past the last card in a
+ * short column — does `closestCorners` take over to pick the nearest slot. Using `closestCorners`
+ * alone makes cross-column drops land in whatever is geometrically closest, not what is under the
+ * cursor, which is what makes a drop feel like it "grabs the wrong thing".
+ */
+const boardCollisionDetection: CollisionDetection = (args) => {
+    const within = pointerWithin(args);
+    return within.length > 0 ? within : closestCorners(args);
+};
+
+/**
  * The Kanban board.
  *
  * Drag is only enabled once a project has columns, because without them every card lives in the
@@ -96,6 +121,7 @@ export function Board({
 }) {
     const client = useQueryClient();
     const move = useMoveTask();
+    const gridRef = useRef<HTMLDivElement | null>(null);
     const [activeId, setActiveId] = useState<string | null>(null);
     const sensors = useSensors(
         // A small threshold keeps a click on a card from being read as the start of a drag.
@@ -136,15 +162,57 @@ export function Board({
 
     const activeTask = activeId ? board.sections.flatMap((section) => section.tasks).find((task) => task.id === activeId) : undefined;
 
+    /**
+     * Arrow-key roving between cards.
+     *
+     * dnd-kit already gives a keyboard drag (Space, then arrows) its own arrow handling; this only
+     * runs when no drag is in progress, and treats a card as a grid cell: up/down walks the column,
+     * left/right hops to the neighbour column keeping the row index. Focus, not selection — the
+     * drawer still opens on Enter, which the card itself handles.
+     */
+    const onGridKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+        if (activeId || event.defaultPrevented) return;
+        const step = ARROWS[event.key];
+        if (!step) return;
+        const card = (event.target as HTMLElement).closest<HTMLElement>('[data-task-card]');
+        if (!card) return;
+        const columns = [...(gridRef.current?.querySelectorAll<HTMLElement>('[data-board-column]') ?? [])];
+        const columnIndex = columns.findIndex((column) => column.contains(card));
+        if (columnIndex < 0) return;
+        const cards = [...columns[columnIndex].querySelectorAll<HTMLElement>('[data-task-card]')];
+        const index = cards.indexOf(card);
+        if (step.axis === 'y') {
+            const next = cards[Math.max(0, Math.min(cards.length - 1, index + step.delta))];
+            if (next && next !== card) {
+                event.preventDefault();
+                next.focus();
+            }
+            return;
+        }
+        const target = columns[columnIndex + step.delta];
+        if (!target) return;
+        const targets = [...target.querySelectorAll<HTMLElement>('[data-task-card]')];
+        const next = targets[Math.min(index, targets.length - 1)];
+        if (next) {
+            event.preventDefault();
+            next.focus();
+        }
+    };
+
     return (
         <DndContext
             sensors={sensors}
-            collisionDetection={closestCorners}
+            collisionDetection={boardCollisionDetection}
+            // Recompute every droppable's rect while a card is in the air: a column grows and shrinks
+            // as the sortable list reflows, and the default (measure once at drag start) leaves the
+            // hit areas a card-length out of date, which is the main reason a drop lands in the wrong
+            // place only "sometimes".
+            measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
             onDragStart={onDragStart}
             onDragCancel={onDragCancel}
             onDragEnd={onDragEnd}
         >
-            <div className="scroll-x flex h-full min-h-0 items-stretch gap-3 px-4 pb-4">
+            <div ref={gridRef} onKeyDown={onGridKeyDown} className="scroll-x flex h-full min-h-0 items-stretch gap-3 px-4 pb-4">
                 {board.sections.map((section) => (
                     <BoardColumn
                         key={section.id}

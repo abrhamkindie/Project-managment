@@ -29,7 +29,7 @@ import type {
  * the UI is merely stale instead of wrong — the same code path serves a live collaborator and
  * a background tab that missed events.
  *
- * Authentication rides on the `orbita_at` session cookie (`withCredentials`), so no token is
+ * Authentication rides on the `zorqen_at` session cookie (`withCredentials`), so no token is
  * ever exposed to JavaScript.
  */
 
@@ -85,7 +85,7 @@ export function RealtimeProvider({
     // the last beat into an honest "seen 4 minutes ago".
     const beat = () => {
       if (document.visibilityState === "visible")
-        socket.emit("presence:heartbeat");
+        {socket.emit("presence:heartbeat");}
     };
     const onVisibility = () => beat();
     document.addEventListener("visibilitychange", onVisibility);
@@ -140,13 +140,13 @@ export function RealtimeProvider({
       (payload: { taskId?: string | null; projectId?: string | null }) => {
         void client.invalidateQueries({ queryKey: keys.activity(orgId) });
         if (payload.taskId)
-          void client.invalidateQueries({
+          {void client.invalidateQueries({
             queryKey: keys.task(payload.taskId),
-          });
+          });}
         if (payload.projectId)
-          void client.invalidateQueries({
+          {void client.invalidateQueries({
             queryKey: keys.project(payload.projectId),
-          });
+          });}
       },
     );
 
@@ -154,9 +154,9 @@ export function RealtimeProvider({
       "project:updated",
       (payload: { projectId?: string; deleted?: boolean }) => {
         if (payload.projectId)
-          void client.invalidateQueries({
+          {void client.invalidateQueries({
             queryKey: keys.project(payload.projectId),
-          });
+          });}
         void client.invalidateQueries({ queryKey: ["org", orgId, "projects"] });
         void client.invalidateQueries({ queryKey: keys.myTasks(orgId) });
       },

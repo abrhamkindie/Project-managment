@@ -125,7 +125,7 @@ function Header() {
       </span>
       <h1 className="text-2xl font-semibold text-ink">You have been invited</h1>
       <p className="text-sm text-ink-muted">
-        A teammate wants you to join their workspace on Orbita.
+        A teammate wants you to join their workspace on ZORQEN.
       </p>
     </header>
   );

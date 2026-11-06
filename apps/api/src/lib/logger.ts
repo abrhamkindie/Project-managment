@@ -7,7 +7,7 @@ import { env } from "../config/env.js";
  */
 export const logger = pino({
   level: env.isTest ? "silent" : env.LOG_LEVEL,
-  base: { service: "orbita-api", env: env.NODE_ENV },
+  base: { service: "zorqen-api", env: env.NODE_ENV },
   redact: {
     paths: [
       "req.headers.authorization",

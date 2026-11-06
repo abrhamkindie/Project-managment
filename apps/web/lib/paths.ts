@@ -14,6 +14,7 @@ export const projectsPath = (slug: string) => workspacePath(slug, 'projects');
 export const projectPath = (slug: string, projectId: string) => `${projectsPath(slug)}/${projectId}`;
 export const taskPath = (slug: string, projectId: string, taskId: string) => `${projectPath(slug, projectId)}/tasks/${taskId}`;
 export const myTasksPath = (slug: string) => workspacePath(slug, 'my-tasks');
+export const calendarPath = (slug: string) => workspacePath(slug, 'calendar');
 export const inboxPath = (slug: string) => workspacePath(slug, 'inbox');
 export const membersPath = (slug: string) => workspacePath(slug, 'members');
 export const settingsPath = () => '/settings';

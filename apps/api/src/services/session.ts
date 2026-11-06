@@ -13,8 +13,8 @@ import { Unauthorized } from "../domain/errors.js";
  * can already see.
  */
 
-export const ACCESS_COOKIE = "orbita_at";
-export const REFRESH_COOKIE = "orbita_rt";
+export const ACCESS_COOKIE = "zorqen_at";
+export const REFRESH_COOKIE = "zorqen_rt";
 
 function cookieBase(): CookieOptions {
   return {
@@ -114,7 +114,7 @@ export async function rotateSession(
     throw new Unauthorized("Session is no longer valid, please sign in again");
   }
   if (!stored.user.isActive)
-    throw new Unauthorized("This account has been deactivated");
+    {throw new Unauthorized("This account has been deactivated");}
 
   await prisma.refreshToken.update({
     where: { id: stored.id },

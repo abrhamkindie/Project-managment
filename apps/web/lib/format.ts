@@ -1,5 +1,16 @@
 import { format, formatDistanceToNowStrict, isValid, parseISO } from 'date-fns';
-import type { ActivityDto, TaskPriority, TaskStatus } from './types';
+import type {
+    ActivityDto,
+    ApiTokenScope,
+    AutomationActionKind,
+    AutomationTriggerEvent,
+    CredentialStatus,
+    CustomFieldDto,
+    CustomFieldType,
+    TaskPriority,
+    TaskStatus,
+    WebhookEvent,
+} from './types';
 
 /**
  * Presentation helpers: the API sends ISO strings and machine enums, and every screen needs
@@ -198,6 +209,25 @@ export function percent(value: number | null | undefined): string {
     return `${Math.round(value)}%`;
 }
 
+/** `90` -> `1h 30m`. The compact shape every logged-time read in the UI shares. */
+export function formatMins(mins: number | null | undefined): string {
+    if (mins === null || mins === undefined) return '—';
+    const abs = Math.max(0, Math.round(mins));
+    const hours = Math.floor(abs / 60);
+    const rest = abs % 60;
+    if (!hours) return `${rest}m`;
+    return rest ? `${hours}h ${rest}m` : `${hours}h`;
+}
+
+/** `5_400_000` -> `1:30:00`. The live timer needs seconds, or it looks frozen between minutes. */
+export function formatStopwatch(ms: number): string {
+    const total = Math.max(0, Math.floor(ms / 1000));
+    const pad = (value: number) => String(value).padStart(2, '0');
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    return hours ? `${hours}:${pad(minutes)}:${pad(total % 60)}` : `${minutes}:${pad(total % 60)}`;
+}
+
 /** `2026-11-03`, the value shape `<input type="date">` expects. */
 export const toDateInput = (value?: string | null) => dayKeyOf(value) ?? '';
 
@@ -246,6 +276,20 @@ export function describeActivity(activity: ActivityDto): string {
             return `deleted a comment on “${title}”`;
         case 'attachment.added':
             return `attached ${String(meta.filename ?? 'a file')}`;
+        case 'time.started':
+            return `started a timer on “${title}”`;
+        case 'time.logged':
+            return `logged ${formatMins(Number(meta.mins ?? 0))} on “${title}”`;
+        case 'time.deleted':
+            return meta.mins ? `removed a ${formatMins(Number(meta.mins))} time entry` : 'removed a time entry';
+        case 'field.created':
+            return `added the field “${title}”`;
+        case 'field.updated':
+            return `changed the field “${title}”`;
+        case 'field.deleted':
+            return `deleted the field “${title}”`;
+        case 'task.fields_updated':
+            return `updated custom fields on “${title}”`;
         case 'label.attached':
             return `changed the labels of “${title}”`;
         case 'project.created':
@@ -263,4 +307,143 @@ export function describeActivity(activity: ActivityDto): string {
         default:
             return activity.type.replace(/[._]/g, ' ');
     }
+}
+
+// --------------------------------------------------- integrations & security (Phase 5)
+
+/**
+ * The dropdown vocabulary for the integration screens, kept next to the other display maps so a
+ * label here and a chip there cannot drift apart. Each list is the client's mirror of an enum in
+ * `apps/api/src/domain/enums.ts`; the API test suite pins that side.
+ */
+
+export const API_TOKEN_SCOPES: ApiTokenScope[] = ['read', 'write', '*'];
+
+export const SCOPE_HINT: Record<ApiTokenScope, string> = {
+    read: 'Read boards, tasks and projects',
+    write: 'Create and change work',
+    '*': 'Every scope, including the management routes',
+};
+
+export const WEBHOOK_EVENTS: WebhookEvent[] = [
+    'task.created',
+    'task.updated',
+    'task.status_changed',
+    'task.assigned',
+    'task.completed',
+    'comment.added',
+    'project.updated',
+    'member.added',
+];
+
+export const WEBHOOK_EVENT_LABEL: Record<WebhookEvent, string> = {
+    'task.created': 'A task is created',
+    'task.updated': 'A task is edited',
+    'task.status_changed': 'A task moves column',
+    'task.assigned': 'A task is assigned',
+    'task.completed': 'A task is completed',
+    'comment.added': 'A comment is posted',
+    'project.updated': 'A project changes',
+    'member.added': 'A member joins',
+};
+
+export const AUTOMATION_TRIGGERS: AutomationTriggerEvent[] = [
+    'task.created',
+    'task.status_changed',
+    'task.assigned',
+    'comment.added',
+];
+
+export const AUTOMATION_TRIGGER_LABEL: Record<AutomationTriggerEvent, string> = {
+    'task.created': 'When a task is created',
+    'task.status_changed': 'When a task changes status',
+    'task.assigned': 'When a task is assigned',
+    'comment.added': 'When a comment is added',
+};
+
+export const AUTOMATION_ACTIONS: AutomationActionKind[] = [
+    'set_status',
+    'set_priority',
+    'assign',
+    'add_label',
+    'notify',
+    'webhook',
+];
+
+export const AUTOMATION_ACTION_LABEL: Record<AutomationActionKind, string> = {
+    set_status: 'Set status to',
+    set_priority: 'Set priority to',
+    assign: 'Assign to',
+    add_label: 'Add label',
+    notify: 'Notify a person',
+    webhook: 'Fire a webhook event',
+};
+
+/** A status chip for the three credential states, so tokens and shares badge identically. */
+export const CREDENTIAL_STATUS_LABEL: Record<CredentialStatus, string> = {
+    active: 'Active',
+    expired: 'Expired',
+    revoked: 'Revoked',
+};
+
+export const CREDENTIAL_STATUS_CLASS: Record<CredentialStatus, string> = {
+    active: 'bg-state-done',
+    expired: 'bg-state-review',
+    revoked: 'bg-state-canceled',
+};
+
+/**
+ * Audit-log event filter. A curated subset, not all thirty-odd activity types: these are the
+ * rows an admin is actually asked about, and a 30-entry dropdown is a search box in disguise.
+ */
+export const AUDIT_EVENT_OPTIONS: { value: string; label: string }[] = [
+    { value: 'task.created', label: 'Task created' },
+    { value: 'task.status_changed', label: 'Status changed' },
+    { value: 'task.assigned', label: 'Task assigned' },
+    { value: 'task.deleted', label: 'Task deleted' },
+    { value: 'comment.added', label: 'Comment added' },
+    { value: 'project.created', label: 'Project created' },
+    { value: 'project.updated', label: 'Project changed' },
+    { value: 'project.member_added', label: 'Project member added' },
+    { value: 'member.invited', label: 'Member invited' },
+    { value: 'member.role_changed', label: 'Member role changed' },
+    { value: 'cycle.closed', label: 'Cycle closed' },
+    { value: 'time.logged', label: 'Time logged' },
+    { value: 'task.fields_updated', label: 'Custom field changed' },
+];
+
+// --------------------------------------------------------------- custom fields (Phase 6)
+
+/** The shapes a field can take, in the order the definition picker lists them. */
+export const CUSTOM_FIELD_TYPES: CustomFieldType[] = ['text', 'number', 'date', 'select', 'checkbox'];
+
+export const CUSTOM_FIELD_TYPE_LABEL: Record<CustomFieldType, string> = {
+    text: 'Text',
+    number: 'Number',
+    date: 'Date',
+    select: 'Dropdown',
+    checkbox: 'Yes / No',
+};
+
+/** Said out loud while somebody is choosing a shape, because the five are not equally obvious. */
+export const CUSTOM_FIELD_TYPE_HINT: Record<CustomFieldType, string> = {
+    text: 'Free text. A filter on it matches any part of what was typed.',
+    number: 'Digits only, compared as a number.',
+    date: 'One day, no time of day.',
+    select: 'One choice from an option list you write here.',
+    checkbox: 'Yes or no, nothing in between.',
+};
+
+/**
+ * How a stored value reads back.
+ *
+ * Every value is a string in the database — that is the portability rule — so the declared type only
+ * ever means anything at the moment it is written or displayed. Blank and absent are the same answer:
+ * there is nothing to show.
+ */
+export function fieldValueLabel(field: Pick<CustomFieldDto, 'type'>, value: string | null | undefined): string {
+    if (!value) return '';
+    if (field.type === 'checkbox') return value === 'true' ? 'Yes' : 'No';
+    if (field.type === 'date') return formatDate(value);
+    return value;
 }

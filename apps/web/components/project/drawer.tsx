@@ -16,6 +16,7 @@ import {
   Image as ImageIcon,
   Link2,
   ListTree,
+  Repeat,
   Maximize2,
   MoreHorizontal,
   Paperclip,
@@ -45,6 +46,7 @@ import {
 } from "~/lib/format";
 import {
   useAttachments,
+  useCycles,
   useDeleteTask,
   useLabels,
   usePeople,
@@ -58,6 +60,7 @@ import type {
   AttachmentDto,
   TaskCardDto,
   TaskDetailDto,
+  TaskKind,
   TaskPriority,
 } from "~/lib/types";
 import {
@@ -72,7 +75,11 @@ import {
   Textarea,
 } from "../ui";
 import { UserPicker } from "../user-picker";
+import { DependenciesBlock } from "./dependencies-block";
+import { CustomFieldsBlock } from "./custom-fields-block";
 import { Discussion } from "./discussion";
+import { RecurrenceRow } from "./recurrence-row";
+import { TimeBlock } from "./time-block";
 import { QuickAdd } from "./quick-add";
 
 /**
@@ -83,10 +90,11 @@ import { QuickAdd } from "./quick-add";
  *   1. Breadcrumb bar — project · column, plus copy-link / more / close
  *   2. Big title (inline editable)
  *   3. Property rows — icon + label on the left, editable value on the right, one per line
- *   4. Description card
- *   5. Attachment cards (grid) with a trailing "+" card
- *   6. Tabs — Subtasks · Comments · Activities
- *   7. Meta footer + Danger zone
+ *   4. Custom fields — one input per field the workspace or this project defines
+ *   5. Description card
+ *   6. Attachment cards (grid) with a trailing "+" card
+ *   7. Tabs — Subtasks · Comments · Activities
+ *   8. Meta footer + Danger zone
  *
  * Fields save on blur or on select-change; the URL owns which task is open (see `ProjectWorkspace`).
  */
@@ -320,8 +328,12 @@ function DrawerBody({
           canEdit={canEdit}
           orgId={orgId}
         />
+        {/* Keyed by task so a draft typed in one task can never reappear in another. */}
+        <CustomFieldsBlock key={task.id} task={task} canEdit={canEdit} />
         <DescriptionBlock task={task} canEdit={canEdit} />
         <AttachmentsBlock task={task} canEdit={canEdit} />
+        <DependenciesBlock task={task} orgId={orgId} canEdit={canEdit} onOpenTask={onOpenTask} />
+        <TimeBlock task={task} />
         <BottomTabs
           task={task}
           orgId={orgId}
@@ -413,6 +425,7 @@ function PropertyList({
 }) {
   const update = useUpdateTask();
   const tone = dueTone(task.dueDate, task.status, task.isOverdue);
+  const cycles = useCycles(task.projectId);
 
   return (
     <div className="mb-5 space-y-1">
@@ -543,6 +556,8 @@ function PropertyList({
       <AssigneeRow task={task} orgId={orgId} canEdit={canEdit} />
       <TagsRow task={task} orgId={orgId} canEdit={canEdit} />
 
+      <RecurrenceRow task={task} canEdit={canEdit} />
+
       <PropertyRow icon={<Flag className="h-4 w-4" />} label="Milestone">
         <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-ink-soft">
           <input
@@ -560,6 +575,48 @@ function PropertyList({
           {task.isMilestone ? "Yes, this is a milestone" : "No"}
         </label>
       </PropertyRow>
+
+      <PropertyRow icon={<ListTree className="h-4 w-4" />} label="Type">
+        <InlineSelect
+          value={task.kind}
+          disabled={!canEdit}
+          ariaLabel="Task type"
+          onChange={(value) =>
+            update.mutate({ taskId: task.id, patch: { kind: value as TaskKind } })
+          }
+          options={[
+            { value: "task", label: "Task" },
+            { value: "epic", label: "Epic" },
+          ]}
+        />
+      </PropertyRow>
+
+      {cycles.isSuccess && cycles.data && cycles.data.length > 0 ? (
+        <PropertyRow
+          icon={<Repeat className="h-4 w-4" />}
+          label="Cycle"
+          hint="Leave as Backlog to keep this task unscheduled"
+        >
+          <InlineSelect
+            value={task.cycleId ?? ""}
+            disabled={!canEdit}
+            ariaLabel="Cycle"
+            onChange={(value) =>
+              update.mutate({
+                taskId: task.id,
+                patch: { cycleId: value ? value : null },
+              })
+            }
+            options={[
+              { value: "", label: "Backlog" },
+              ...cycles.data.map((c) => ({
+                value: c.id,
+                label: `${c.name}${c.status === "active" ? " (active)" : ""}`,
+              })),
+            ]}
+          />
+        </PropertyRow>
+      ) : null}
     </div>
   );
 }
@@ -892,19 +949,15 @@ function DescriptionBlock({
 
 function attachmentIcon(mime: string, name: string): ReactNode {
   const lower = name.toLowerCase();
-  if (mime.startsWith("image/"))
-    return <ImageIcon className="h-5 w-5 text-pink-500" />;
-  if (mime === "application/pdf" || lower.endsWith(".pdf"))
-    return <FileText className="h-5 w-5 text-red-500" />;
+  if (mime.startsWith("image/")) { return <ImageIcon className="h-5 w-5 text-pink-500" />; }
+  if (mime === "application/pdf" || lower.endsWith(".pdf")) { return <FileText className="h-5 w-5 text-red-500" />; }
   if (
     lower.endsWith(".ai") ||
     lower.endsWith(".psd") ||
     lower.endsWith(".fig") ||
     lower.endsWith(".sketch")
-  )
-    return <FileIcon className="h-5 w-5 text-orange-500" />;
-  if (/\.(xlsx?|csv|numbers)$/.test(lower))
-    return <Sheet className="h-5 w-5 text-emerald-600" />;
+  ) { return <FileIcon className="h-5 w-5 text-orange-500" />; }
+  if (/\.(xlsx?|csv|numbers)$/.test(lower)) { return <Sheet className="h-5 w-5 text-emerald-600" />; }
   return <FileIcon className="h-5 w-5 text-ink-muted" />;
 }
 
@@ -959,8 +1012,7 @@ function AttachmentsBlock({
         className="hidden"
         aria-label="Upload files"
         onChange={(event) => {
-          for (const file of Array.from(event.target.files ?? []))
-            attachments.upload.mutate(file);
+          for (const file of Array.from(event.target.files ?? [])) { attachments.upload.mutate(file); }
           event.target.value = "";
         }}
       />
@@ -1248,7 +1300,7 @@ function SubtasksPanel({
             orgId={orgId}
             label="Add subtask"
             body={{ projectId, parentTaskId: task.id }}
-            onClose={() => {}}
+            onClose={() => { }}
           />
         </div>
       ) : null}

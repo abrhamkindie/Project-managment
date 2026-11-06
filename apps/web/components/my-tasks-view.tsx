@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import clsx from 'clsx';
 import { CalendarCheck, Flag, ListChecks } from 'lucide-react';
@@ -10,6 +10,7 @@ import { projectPath } from '~/lib/paths';
 import type { TaskCardDto, TaskPriority } from '~/lib/types';
 import { AvatarStack, Button, EmptyState, ErrorNote, Skeleton } from './ui';
 import { Page, PageHeader } from './page-shell';
+import { SavedFilterBar } from './saved-filter-bar';
 
 /**
  * My Tasks: the personal work queue.
@@ -110,7 +111,18 @@ export function MyTasksView({ orgId, slug }: { orgId: string; slug: string; view
                 />
             ) : (
                 <>
-                    <BucketFilter value={filter} onChange={setFilter} counts={counts} />
+                    <BucketFilter
+                        value={filter}
+                        onChange={setFilter}
+                        counts={counts}
+                        extra={
+                            <SavedFilterBar
+                                orgId={orgId}
+                                params={filter === 'all' ? {} : { bucket: filter }}
+                                onApply={(stored) => setFilter(typeof stored.bucket === 'string' ? (stored.bucket as BucketKey) : 'all')}
+                            />
+                        }
+                    />
 
                     {visible.every((key) => byBucket[key].length === 0) ? (
                         <EmptyState
@@ -152,24 +164,38 @@ export function MyTasksView({ orgId, slug }: { orgId: string; slug: string; view
 
 /**
  * A tight horizontal strip of filter chips. Each chip is also a live count, so scanning the row
- * tells the reader where the pressure is without them opening anything.
+ * tells the reader where the pressure is without them opening anything. `extra` lets the screen drop
+ * saved-filter chips onto the same row, keeping one filter vocabulary per list.
  */
-function BucketFilter({ value, onChange, counts }: { value: BucketKey | 'all'; onChange: (next: BucketKey | 'all') => void; counts: Record<BucketKey, number> }) {
+function BucketFilter({
+    value,
+    onChange,
+    counts,
+    extra,
+}: {
+    value: BucketKey | 'all';
+    onChange: (next: BucketKey | 'all') => void;
+    counts: Record<BucketKey, number>;
+    extra?: ReactNode;
+}) {
     const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
     return (
-        <div role="tablist" className="mb-4 flex flex-wrap items-center gap-1.5">
-            <Chip active={value === 'all'} onClick={() => onChange('all')} label="All" count={total} />
-            {BUCKETS.map((b) => (
-                <Chip
-                    key={b.key}
-                    active={value === b.key}
-                    onClick={() => onChange(b.key)}
-                    label={b.label}
-                    count={counts[b.key]}
-                    tone={b.tone}
-                    disabled={counts[b.key] === 0}
-                />
-            ))}
+        <div className="mb-4 flex flex-wrap items-center gap-1.5">
+            <div role="tablist" className="flex flex-wrap items-center gap-1.5">
+                <Chip active={value === 'all'} onClick={() => onChange('all')} label="All" count={total} />
+                {BUCKETS.map((b) => (
+                    <Chip
+                        key={b.key}
+                        active={value === b.key}
+                        onClick={() => onChange(b.key)}
+                        label={b.label}
+                        count={counts[b.key]}
+                        tone={b.tone}
+                        disabled={counts[b.key] === 0}
+                    />
+                ))}
+            </div>
+            {extra ? <span className="ml-auto">{extra}</span> : null}
         </div>
     );
 }

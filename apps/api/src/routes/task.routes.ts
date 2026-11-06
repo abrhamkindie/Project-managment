@@ -5,6 +5,8 @@ import { input, validate } from "../middleware/validate.js";
 import { authenticate, currentUser } from "../middleware/auth.js";
 import * as tasks from "../services/task.service.js";
 import * as comments from "../services/comment.service.js";
+import * as dependencies from "../services/dependency.service.js";
+import * as time from "../services/time.service.js";
 import { loadTaskAccess } from "../services/access.js";
 import { recordActivity } from "../services/activity.js";
 import { storage } from "../services/storage.js";
@@ -16,17 +18,23 @@ import {
   assignSchema,
   bulkTaskSchema,
   createCommentSchema,
+  createDependencySchema,
   createTaskSchema,
   labelIdsSchema,
+  manualTimeLogSchema,
   moveTaskSchema,
+  startTimeLogSchema,
   taskListQuerySchema,
   updateTaskSchema,
   type AssignInput,
   type BulkTaskInput,
   type CreateCommentInput,
+  type CreateDependencyInput,
   type CreateTaskInput,
   type LabelIdsInput,
+  type ManualTimeLogInput,
   type MoveTaskInput,
+  type StartTimeLogInput,
   type TaskListQuery,
   type UpdateTaskInput,
 } from "../domain/schemas.js";
@@ -180,6 +188,107 @@ taskRouter.put(
   }),
 );
 
+// ------------------------------------------------------------------- dependencies
+
+taskRouter.get(
+  "/tasks/:id/dependencies",
+  asyncHandler(async (req, res) => {
+    res.json(await dependencies.listDependencies(currentUser(req), req.params.id));
+  }),
+);
+
+taskRouter.post(
+  "/tasks/:id/dependencies",
+  validate(createDependencySchema),
+  asyncHandler(async (req, res) => {
+    res
+      .status(201)
+      .json(
+        await dependencies.addDependency(
+          currentUser(req),
+          req.params.id,
+          input<CreateDependencyInput>(req),
+        ),
+      );
+  }),
+);
+
+taskRouter.delete(
+  "/tasks/:id/dependencies/:dependencyId",
+  asyncHandler(async (req, res) => {
+    res.json(
+      await dependencies.removeDependency(
+        currentUser(req),
+        req.params.id,
+        req.params.dependencyId,
+      ),
+    );
+  }),
+);
+
+// ------------------------------------------------------------------------- time
+
+/** Entries, per-person totals and this caller's live timer. */
+taskRouter.get(
+  "/tasks/:id/time",
+  asyncHandler(async (req, res) => {
+    res.json(await time.taskTime(currentUser(req), req.params.id));
+  }),
+);
+
+taskRouter.post(
+  "/tasks/:id/time/start",
+  validate(startTimeLogSchema),
+  asyncHandler(async (req, res) => {
+    res
+      .status(201)
+      .json(
+        await time.startTimer(
+          currentUser(req),
+          req.params.id,
+          input<StartTimeLogInput>(req),
+        ),
+      );
+  }),
+);
+
+taskRouter.post(
+  "/tasks/:id/time/stop",
+  asyncHandler(async (req, res) => {
+    res.json(await time.stopTimer(currentUser(req), req.params.id));
+  }),
+);
+
+/** Backfill: "I did this yesterday and forgot to press start". */
+taskRouter.post(
+  "/tasks/:id/time/entries",
+  validate(manualTimeLogSchema),
+  asyncHandler(async (req, res) => {
+    res
+      .status(201)
+      .json(
+        await time.addEntry(
+          currentUser(req),
+          req.params.id,
+          input<ManualTimeLogInput>(req),
+        ),
+      );
+  }),
+);
+
+taskRouter.delete(
+  "/tasks/:id/time/entries/:entryId",
+  asyncHandler(async (req, res) => {
+    res.json(
+      await time.deleteEntry(
+        currentUser(req),
+        req.params.id,
+        req.params.entryId,
+      ),
+    );
+  }),
+);
+
 // ----------------------------------------------------------------------- comments
 
 taskRouter.get(
@@ -243,8 +352,7 @@ taskRouter.post(
     // `file.mimetype` is a client-supplied label, not a fact. Trust the leading bytes so
     // what gets stored matches the `Content-Type` the download route later replies with.
     const sniffed = sniffFile(file.buffer, file.mimetype);
-    if (!sniffed)
-      throw new BadRequest(`Unsupported file type (${file.mimetype})`);
+    if (!sniffed) { throw new BadRequest(`Unsupported file type (${file.mimetype})`); }
 
     const filename = safeFilename(file.originalname, sniffed.extension);
     const saved = await storage.save(file.buffer, {

@@ -52,7 +52,7 @@ export function ForgotPasswordForm() {
         </header>
         <p className="text-xs text-ink-faint">
           The link works once and expires after a while. If nothing arrives, the
-          address has no Orbita password of its own — or the mail landed in
+          address has no ZORQEN password of its own — or the mail landed in
           spam.
         </p>
         <Link href="/login" className="link block text-sm">

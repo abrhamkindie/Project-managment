@@ -322,7 +322,7 @@ async function tokenFor(email: string): Promise<string> {
     .post("/api/auth/login")
     .send({ email, password: PASSWORD })
     .expect(200);
-  return cookieValue(login, "orbita_at");
+  return cookieValue(login, "zorqen_at");
 }
 
 async function cookieFor(email: string): Promise<string> {
@@ -330,7 +330,7 @@ async function cookieFor(email: string): Promise<string> {
     .post("/api/auth/login")
     .send({ email, password: PASSWORD })
     .expect(200);
-  return `orbita_at=${cookieValue(login, "orbita_at")}`;
+  return `zorqen_at=${cookieValue(login, "zorqen_at")}`;
 }
 
 afterAll(() => prisma.$disconnect());

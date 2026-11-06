@@ -91,30 +91,38 @@ describe('housekeeping', () => {
         const consumedReset = await prisma.passwordResetToken.create({ data: { userId: owner.userId, tokenHash: hash(), expiresAt: daysAgo(ancient), usedAt: daysAgo(ancient) } });
         const staleBucket = await prisma.rateLimitBucket.create({ data: { bucketKey: `test:${unique('bucket')}`, count: 4, expiresAt: daysAgo(1) } });
         const deadInvite = await prisma.invitation.create({
-            data: { orgId: owner.orgId, email: `${unique('gone')}@atlas.test`, tokenHash: hash(), invitedById: owner.userId, expiresAt: daysAgo(ancient) },
+            data: { orgId: owner.orgId, email: `${unique('gone')}@zorqen.test`, tokenHash: hash(), invitedById: owner.userId, expiresAt: daysAgo(ancient) },
         });
         const readNotice = await prisma.notification.create({
             data: { userId: owner.userId, orgId: owner.orgId, type: 'task.due', title: 'Old news', body: 'x', readAt: daysAgo(ancient), createdAt: daysAgo(ancient) },
         });
+        const hook = await prisma.webhook.create({ data: { orgId: owner.orgId, url: 'https://example.test/hook', secret: 'whsec_test', events: '["task.created"]' } });
+        const expiredToken = await prisma.apiToken.create({ data: { userId: owner.userId, name: 'Expired', tokenHash: hash(), expiresAt: daysAgo(1) } });
+        const revokedTokenRow = await prisma.apiToken.create({ data: { userId: owner.userId, name: 'Old revoke', tokenHash: hash(), revokedAt: daysAgo(ancient) } });
+        const oldDelivery = await prisma.webhookDelivery.create({ data: { webhookId: hook.id, event: 'task.created', payload: '{}', status: 'success', createdAt: daysAgo(ancient) } });
 
         // Each of these has to survive: the guardrails are the whole point of the grace period.
         const freshSession = await prisma.refreshToken.create({ data: { userId: owner.userId, tokenHash: hash(), expiresAt: daysAgo(2), revokedAt: daysAgo(1) } });
         const liveReset = await prisma.passwordResetToken.create({ data: { userId: owner.userId, tokenHash: hash(), expiresAt: daysAgo(10) } });
         const openInvite = await prisma.invitation.create({
-            data: { orgId: owner.orgId, email: `${unique('still')}@atlas.test`, tokenHash: hash(), invitedById: owner.userId, expiresAt: daysAgo(ancient), acceptedAt: daysAgo(ancient - 1) },
+            data: { orgId: owner.orgId, email: `${unique('still')}@zorqen.test`, tokenHash: hash(), invitedById: owner.userId, expiresAt: daysAgo(ancient), acceptedAt: daysAgo(ancient - 1) },
         });
         const unreadNotice = await prisma.notification.create({
             data: { userId: owner.userId, orgId: owner.orgId, type: 'task.due', title: 'Never seen', body: 'x', createdAt: daysAgo(ancient) },
         });
         const history = await prisma.activity.create({ data: { orgId: owner.orgId, actorId: owner.userId, taskId: task.id, type: 'task.created', meta: '{}', createdAt: daysAgo(ancient) } });
+        const liveTokenRow = await prisma.apiToken.create({ data: { userId: owner.userId, name: 'Still valid', tokenHash: hash() } });
+        const recentDelivery = await prisma.webhookDelivery.create({ data: { webhookId: hook.id, event: 'task.created', payload: '{}', status: 'failed', createdAt: daysAgo(5) } });
 
         const counts = await runHousekeeping();
-        expect(Object.keys(counts).sort()).toEqual(['invitations', 'notifications', 'rateLimitBuckets', 'refreshTokens', 'resetTokens']);
+        expect(Object.keys(counts).sort()).toEqual(['apiTokens', 'invitations', 'notifications', 'rateLimitBuckets', 'refreshTokens', 'resetTokens', 'webhookDeliveries']);
         expect(counts.refreshTokens).toBeGreaterThanOrEqual(2);
         expect(counts.resetTokens).toBeGreaterThanOrEqual(1);
         expect(counts.rateLimitBuckets).toBeGreaterThanOrEqual(1);
         expect(counts.invitations).toBeGreaterThanOrEqual(1);
         expect(counts.notifications).toBeGreaterThanOrEqual(1);
+        expect(counts.apiTokens).toBeGreaterThanOrEqual(2);
+        expect(counts.webhookDeliveries).toBeGreaterThanOrEqual(1);
 
         expect(await prisma.refreshToken.findUnique({ where: { id: deadToken.id } })).toBeNull();
         expect(await prisma.refreshToken.findUnique({ where: { id: revokedToken.id } })).toBeNull();
@@ -122,11 +130,16 @@ describe('housekeeping', () => {
         expect(await prisma.rateLimitBucket.findUnique({ where: { id: staleBucket.id } })).toBeNull();
         expect(await prisma.invitation.findUnique({ where: { id: deadInvite.id } })).toBeNull();
         expect(await prisma.notification.findUnique({ where: { id: readNotice.id } })).toBeNull();
+        expect(await prisma.apiToken.findUnique({ where: { id: expiredToken.id } })).toBeNull();
+        expect(await prisma.apiToken.findUnique({ where: { id: revokedTokenRow.id } })).toBeNull();
+        expect(await prisma.webhookDelivery.findUnique({ where: { id: oldDelivery.id } })).toBeNull();
 
         expect(await prisma.refreshToken.findUnique({ where: { id: freshSession.id } })).not.toBeNull();
         expect(await prisma.passwordResetToken.findUnique({ where: { id: liveReset.id } })).not.toBeNull();
         expect(await prisma.invitation.findUnique({ where: { id: openInvite.id } })).not.toBeNull();
         expect(await prisma.notification.findUnique({ where: { id: unreadNotice.id } })).not.toBeNull();
+        expect(await prisma.apiToken.findUnique({ where: { id: liveTokenRow.id } })).not.toBeNull();
+        expect(await prisma.webhookDelivery.findUnique({ where: { id: recentDelivery.id } })).not.toBeNull();
         // The audit trail is history, not scratch data: nothing here is ever pruned.
         expect(await prisma.activity.findUnique({ where: { id: history.id } })).not.toBeNull();
     });

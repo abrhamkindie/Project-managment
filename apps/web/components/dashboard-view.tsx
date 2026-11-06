@@ -30,6 +30,7 @@ import {
     STATUS_TOKEN,
     dueLabel,
     formatHours,
+    formatMins,
     percent,
 } from '~/lib/format';
 import { projectsPath, projectPath } from '~/lib/paths';
@@ -448,6 +449,7 @@ function WorkloadTable({ rows }: { rows: WorkloadRow[] }) {
                         <span className="mt-1 block truncate text-xs tabular-nums text-ink-faint">
                             {row.done}/{row.assigned} done
                             {row.completedInWindow > 0 ? <span className="text-green-600"> · {row.completedInWindow} this window</span> : null}
+                            {row.loggedMins > 0 ? <span> · {formatMins(row.loggedMins)} logged</span> : null}
                             {row.overdue > 0 ? <span className="text-danger"> · {row.overdue} late</span> : null}
                         </span>
                     </span>

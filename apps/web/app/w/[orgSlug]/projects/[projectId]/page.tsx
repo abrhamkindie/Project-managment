@@ -22,5 +22,5 @@ export default async function ProjectPage({
     const { session, org } = await requireWorkspace(orgSlug);
     const task = Array.isArray(query.task) ? query.task[0] : query.task;
 
-    return <ProjectWorkspace orgId={org.id} slug={org.slug} projectId={projectId} viewerId={session.user.id} initialTaskId={task ?? null} />;
+    return <ProjectWorkspace orgId={org.id} slug={org.slug} projectId={projectId} viewerId={session.user.id} timezone={session.user.timezone} initialTaskId={task ?? null} />;
 }

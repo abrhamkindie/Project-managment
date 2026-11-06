@@ -178,18 +178,18 @@ function compose(input: ComposeInput): Mail {
                 <table role="presentation" cellpadding="0" cellspacing="0">
                   <tr>
                     <td style="width:22px;height:22px;border-radius:6px;background:${accent};text-align:center;vertical-align:middle"><span style="color:#fff;font-weight:800;font-size:13px;line-height:22px">O</span></td>
-                    <td style="padding-left:8px;font-weight:700;font-size:14px;color:${accent}">Orbita</td>
+                    <td style="padding-left:8px;font-weight:700;font-size:14px;color:${accent}">ZORQEN</td>
                   </tr>
                 </table>
               </td>
-              <td align="right" valign="middle"><a href="${esc(env.WEB_URL)}" style="color:${MUTED};font-size:13px;text-decoration:none">Visit Orbita &rarr;</a></td>
+              <td align="right" valign="middle"><a href="${esc(env.WEB_URL)}" style="color:${MUTED};font-size:13px;text-decoration:none">Visit ZORQEN &rarr;</a></td>
             </tr>
           </table>
-          <p style="margin:16px 0 0;font-size:12px;line-height:1.6;color:${MUTED}">You&rsquo;re receiving this because you have an Orbita account. Manage what lands in your inbox any time from <a href="${esc(env.WEB_URL)}/settings" style="color:${MUTED};text-decoration:underline">notification preferences</a>.</p>
+          <p style="margin:16px 0 0;font-size:12px;line-height:1.6;color:${MUTED}">You&rsquo;re receiving this because you have an ZORQEN account. Manage what lands in your inbox any time from <a href="${esc(env.WEB_URL)}/settings" style="color:${MUTED};text-decoration:underline">notification preferences</a>.</p>
         </td></tr>
 
       </table>
-      <p style="max-width:600px;margin:20px auto 0;font-size:12px;line-height:1.5;color:#9ca3af;text-align:center">Orbita &middot; Project management for teams</p>
+      <p style="max-width:600px;margin:20px auto 0;font-size:12px;line-height:1.5;color:#9ca3af;text-align:center">ZORQEN &middot; Project management for teams</p>
     </td></tr>
   </table>
 </body>
@@ -199,7 +199,7 @@ function compose(input: ComposeInput): Mail {
   if (input.greeting) textLines.push(plain(input.greeting));
   textLines.push(plain(input.body));
   for (const row of input.details ?? [])
-    textLines.push(`${row.label}: ${plain(row.value)}`);
+    {textLines.push(`${row.label}: ${plain(row.value)}`);}
   if (input.cta) textLines.push(`${input.cta.label}: ${input.cta.url}`);
   const text = `${input.subject}\n\n${textLines.filter(Boolean).join("\n")}\n`;
 
@@ -236,11 +236,11 @@ export const mails = {
   }): Mail {
     return compose({
       to: input.to,
-      subject: `Welcome to Orbita, ${input.firstName}`,
+      subject: `Welcome to ZORQEN, ${input.firstName}`,
       preheader: `Your workspace ${input.orgName} is ready to go.`,
       eyebrow: "Welcome aboard",
       icon: "👋",
-      title: `Welcome to Orbita, ${input.firstName}!`,
+      title: `Welcome to ZORQEN, ${input.firstName}!`,
       greeting: `Hi ${esc(input.firstName)},`,
       body: `<p style="margin:0">Your workspace is set up and ready. Invite your teammates, create your first project, and start tracking work in one place.</p>`,
       details: [{ label: "Your workspace", value: esc(input.orgName) }],
@@ -258,12 +258,12 @@ export const mails = {
     return compose({
       to: input.to,
       subject: `You've been invited to join ${input.orgName}`,
-      preheader: `${input.inviterName} invited you to ${input.orgName} on Orbita.`,
+      preheader: `${input.inviterName} invited you to ${input.orgName} on ZORQEN.`,
       eyebrow: "Invitation",
       icon: "✉️",
       title: `Join ${input.orgName}`,
       greeting: "Hi there,",
-      body: `<p style="margin:0"><strong>${esc(input.inviterName)}</strong> invited you to collaborate in their Orbita workspace. Accept below to get started &mdash; this invitation expires in 7 days.</p>`,
+      body: `<p style="margin:0"><strong>${esc(input.inviterName)}</strong> invited you to collaborate in their ZORQEN workspace. Accept below to get started &mdash; this invitation expires in 7 days.</p>`,
       details: [
         { label: "Workspace", value: esc(input.orgName) },
         { label: "Your role", value: esc(input.role) },
@@ -284,12 +284,12 @@ export const mails = {
     return compose({
       to: input.to,
       subject: `You've been added to ${input.orgName}`,
-      preheader: `${input.inviterName} added you to ${input.orgName} on Orbita.`,
+      preheader: `${input.inviterName} added you to ${input.orgName} on ZORQEN.`,
       eyebrow: "Workspace access",
       icon: "🏢",
       title: `You've been added to ${input.orgName}`,
       greeting: `Hi ${esc(input.firstName)},`,
-      body: `<p style="margin:0"><strong>${esc(input.inviterName)}</strong> added your Orbita account to their workspace. You&rsquo;re in &mdash; no invitation to accept, just sign in and start collaborating.</p>`,
+      body: `<p style="margin:0"><strong>${esc(input.inviterName)}</strong> added your ZORQEN account to their workspace. You&rsquo;re in &mdash; no invitation to accept, just sign in and start collaborating.</p>`,
       details: [
         { label: "Workspace", value: esc(input.orgName) },
         { label: "Your role", value: esc(input.role) },
@@ -388,13 +388,13 @@ export const mails = {
   passwordReset(input: { to: string; link: string; minutes: number }): Mail {
     return compose({
       to: input.to,
-      subject: "Reset your Orbita password",
+      subject: "Reset your ZORQEN password",
       preheader: `This link expires in ${input.minutes} minutes.`,
       eyebrow: "Security",
       icon: "🔑",
       title: "Reset your password",
       greeting: "Hello,",
-      body: `<p style="margin:0 0 14px">Someone asked to reset the password for this Orbita account. Use the button below to choose a new one &mdash; it works once and expires in <strong>${input.minutes} minutes</strong>.</p>
+      body: `<p style="margin:0 0 14px">Someone asked to reset the password for this ZORQEN account. Use the button below to choose a new one &mdash; it works once and expires in <strong>${input.minutes} minutes</strong>.</p>
 <p style="margin:0;color:${MUTED};font-size:14px">If you did not ask for this, you can safely ignore this email; your password stays unchanged.</p>`,
       cta: { label: "Choose a new password", url: input.link },
       accent: DANGER,
@@ -405,13 +405,13 @@ export const mails = {
   passwordChanged(input: { to: string; firstName: string }): Mail {
     return compose({
       to: input.to,
-      subject: "Your Orbita password was changed",
+      subject: "Your ZORQEN password was changed",
       preheader: "Every session on every device was signed out.",
       eyebrow: "Security",
       icon: "✅",
       title: "Password changed",
       greeting: `Hi ${esc(input.firstName)},`,
-      body: `<p style="margin:0 0 14px">Your Orbita password was changed successfully, and <strong>every existing session was signed out</strong>.</p>
+      body: `<p style="margin:0 0 14px">Your ZORQEN password was changed successfully, and <strong>every existing session was signed out</strong>.</p>
 <p style="margin:0;color:${MUTED};font-size:14px">If this was not you, sign in and reset the password immediately, then tell your workspace admin.</p>`,
       details: [{ label: "Changed", value: new Date().toUTCString() }],
     });

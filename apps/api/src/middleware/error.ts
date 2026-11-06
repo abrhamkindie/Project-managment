@@ -42,7 +42,7 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
 
   if (error instanceof AppError) {
     if (error.status >= 500)
-      logger.error({ err: error, reqId: requestId }, error.message);
+      {logger.error({ err: error, reqId: requestId }, error.message);}
     const response = error.toJSON();
     return res.status(error.status).json({ ...response, requestId });
   }
